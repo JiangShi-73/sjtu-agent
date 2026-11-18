@@ -1,1 +1,1 @@
-# sjtu-agent
+# PathFinder
