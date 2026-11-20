@@ -14,6 +14,7 @@ KNOWN = {
     "cnmooc": "好大学在线 · 站内消息",
     "pe": "物理实验通知",
     "second_classroom": "第二课堂活动",
+    "rss": "RSS / 公众号",
 }
 
 

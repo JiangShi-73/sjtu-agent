@@ -29,6 +29,38 @@ def read_settings():
     }
 
 
+@router.get("/feeds")
+def list_feeds():
+    cfg = config.load()
+    return {"feeds": cfg.get("rss_feeds") or []}
+
+
+@router.post("/feeds")
+def add_feed(body: dict):
+    url = (body.get("url") or "").strip()
+    if not url.startswith("http"):
+        return {"ok": False, "error": "url 必须以 http 开头"}
+    cfg = config.load()
+    feeds = [f for f in (cfg.get("rss_feeds") or []) if f.get("url") != url]
+    feeds.append(
+        {
+            "name": (body.get("name") or url).strip(),
+            "url": url,
+            "board": body.get("board") or "wechat",
+        }
+    )
+    config.save({"rss_feeds": feeds})
+    return {"ok": True, "feeds": feeds}
+
+
+@router.delete("/feeds")
+def remove_feed(url: str):
+    cfg = config.load()
+    feeds = [f for f in (cfg.get("rss_feeds") or []) if f.get("url") != url]
+    config.save({"rss_feeds": feeds})
+    return {"ok": True, "feeds": feeds}
+
+
 @router.put("/settings")
 def write_settings(body: dict):
     payload = {k: v for k, v in (body or {}).items() if k in config.DEFAULTS}

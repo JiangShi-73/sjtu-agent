@@ -80,6 +80,7 @@ DEFAULT_BOARDS = [
     ("event", "活动", 20),
     ("lab", "实验", 30),
     ("mooc", "慕课", 40),
+    ("wechat", "公众号", 50),
     ("custom", "自定义", 90),
 ]
 
@@ -89,6 +90,7 @@ SOURCE_BOARD = {
     "second_classroom": "event",
     "pe": "lab",
     "cnmooc": "mooc",
+    "rss": "custom",          # 单条订阅可以在 extra.board 里覆盖
 }
 
 
@@ -123,27 +125,32 @@ def upsert_items(items: list) -> int:
     added = 0
     try:
         for it in items:
-            board = SOURCE_BOARD.get(it.source, "custom")
+            board = (it.extra or {}).get("board") or SOURCE_BOARD.get(it.source, "custom")
+            published = it.published.isoformat(sep=" ", timespec="minutes") if it.published else None
+            deadline = it.deadline.isoformat(sep=" ", timespec="minutes") if it.deadline else None
+            extra = json.dumps(it.extra, ensure_ascii=False)
+
             cur = conn.execute(
                 """INSERT OR IGNORE INTO items
                    (source, uid, board, title, summary, url, category,
                     published, deadline, extra, created_at)
                    VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
-                (
-                    it.source,
-                    it.uid,
-                    board,
-                    it.title,
-                    it.summary,
-                    it.url,
-                    it.category,
-                    it.published.isoformat(sep=" ", timespec="minutes") if it.published else None,
-                    it.deadline.isoformat(sep=" ", timespec="minutes") if it.deadline else None,
-                    json.dumps(it.extra, ensure_ascii=False),
-                    now,
-                ),
+                (it.source, it.uid, board, it.title, it.summary, it.url,
+                 it.category, published, deadline, extra, now),
             )
-            added += cur.rowcount
+
+            if cur.rowcount:
+                added += 1
+            else:
+                # 已存在：更新可变字段，但保留 read_at / starred / board
+                conn.execute(
+                    """UPDATE items SET
+                         title=?, summary=?, url=?, category=?,
+                         published=?, deadline=?, extra=?
+                       WHERE source=? AND uid=?""",
+                    (it.title, it.summary, it.url, it.category,
+                     published, deadline, extra, it.source, it.uid),
+                )
         conn.commit()
     finally:
         conn.close()
