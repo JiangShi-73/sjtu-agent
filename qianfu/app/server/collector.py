@@ -21,9 +21,14 @@ _session = SessionStore()
 
 
 def _make(key: str):
+    from .config import load as load_config
+
+    cfg = load_config()
     kwargs = {}
-    if key == "canvas" and os.environ.get("CANVAS_TOKEN"):
-        kwargs["token"] = os.environ["CANVAS_TOKEN"]
+    if key == "canvas" and cfg.get("canvas_token"):
+        kwargs["token"] = cfg["canvas_token"]
+    if key == "second_classroom":
+        kwargs["api_key"] = cfg.get("sjtu_api_key", "")
     return build(key, _session, **kwargs)
 
 

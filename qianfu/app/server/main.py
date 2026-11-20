@@ -21,7 +21,7 @@ from fastapi.staticfiles import StaticFiles
 
 from . import db
 from .events import bus
-from .routers import items_router, sources_router, system_router
+from .routers import items_router, settings_router, sources_router, system_router
 
 WEB_DIR = Path(__file__).resolve().parent.parent / "web"
 LOG_DIR = Path.home() / ".xinge" / "logs"
@@ -62,6 +62,7 @@ app = FastAPI(
 app.include_router(system_router, prefix="/api/v1")
 app.include_router(sources_router, prefix="/api/v1")
 app.include_router(items_router, prefix="/api/v1")
+app.include_router(settings_router, prefix="/api/v1")
 
 
 @app.get("/", include_in_schema=False)
