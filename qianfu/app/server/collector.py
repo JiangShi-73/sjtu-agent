@@ -43,6 +43,11 @@ async def fetch_one(key: str) -> dict:
         return {"key": key, "ok": False, "error": str(exc), "added": 0}
 
     added = db.upsert_items(report.items) if report.ok else 0
+
+    # 慕课作业过期的直接清掉，避免信息流里堆往期作业
+    if key == "cnmooc" and report.ok:
+        db.delete_expired("cnmooc", "作业/测验")
+
     db.record_run(key, report.ok, report.error, len(report.items))
 
     payload = {

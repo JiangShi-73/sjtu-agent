@@ -203,6 +203,23 @@ def delete_item(item_id: int) -> bool:
         conn.close()
 
 
+def delete_expired(source: str, category: str) -> int:
+    """删掉某类里已经过期的条目（例如往期作业）。"""
+    conn = connect()
+    try:
+        cur = conn.execute(
+            """DELETE FROM items
+               WHERE source=? AND category=?
+                 AND deadline IS NOT NULL AND deadline <> ''
+                 AND date(deadline) < date('now','localtime')""",
+            (source, category),
+        )
+        conn.commit()
+        return cur.rowcount
+    finally:
+        conn.close()
+
+
 def delete_read_items() -> int:
     """清掉所有已读条目。"""
     conn = connect()
