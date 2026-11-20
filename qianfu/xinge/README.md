@@ -18,7 +18,10 @@ auth/      认证
   jaccount.py    扫码登录（HTTP + WebSocket，不弹浏览器）
 
 sources/   信息源
-  canvas.py      Canvas planner 聚合流
+  canvas.py            Canvas planner 聚合流（需要登录）
+  cnmooc.py            好大学在线站内消息（需要登录）
+  pe.py                物理实验通知（**免登录**）
+  second_classroom.py  第二课堂活动（API Key，不走 JAccount）
 ```
 
 新增一个站点 = 往 `sites.SITES` 加一条。
@@ -34,7 +37,10 @@ python -m xinge sites                 # 看各站点登录状态
 python -m xinge qr --site canvas      # 只要一张二维码
 python -m xinge login --site canvas   # 扫码登录（会弹图并等待）
 python -m xinge login                 # 依次登录全部站点
-python -m xinge fetch --source canvas # 抓 Canvas 的公告/作业
+python -m xinge fetch --source canvas    # 抓 Canvas 的公告/作业
+python -m xinge fetch --source cnmooc    # 好大学在线站内消息
+python -m xinge fetch --source pe        # 物理实验通知（免登录）
+python -m xinge fetch --source all       # 全部源跑一遍
 python -m xinge logout                # 清空本地凭据
 ```
 
@@ -57,6 +63,13 @@ python -m xinge logout                # 清空本地凭据
 
 全部放在 `~/.xinge/session.json`，不进仓库。
 可以用环境变量 `XINGE_HOME` 改目录。
+
+第二课堂走学校开放数据接口，用独立的 API Key：
+
+```bash
+export SJTU_API_KEY=xxxxx
+python -m xinge fetch --source second_classroom
+```
 
 Canvas 也支持个人访问令牌，设置 `CANVAS_TOKEN` 即可绕过扫码：
 

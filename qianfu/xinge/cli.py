@@ -136,27 +136,34 @@ def cmd_login(args) -> int:
     return 0
 
 
+ALL_SOURCES = ("canvas", "cnmooc", "pe", "second_classroom")
+
+
 def cmd_fetch(args) -> int:
-    from .sources import CanvasSource
+    from .sources import build
 
     store = SessionStore()
-    if args.source != "canvas":
-        print(f"暂未实现: {args.source}")
-        return 1
+    keys = ALL_SOURCES if args.source == "all" else (args.source,)
 
-    src = CanvasSource(store, token=os.environ.get("CANVAS_TOKEN"))
-    report = src.fetch()
+    for key in keys:
+        kwargs = {}
+        if key == "canvas" and os.environ.get("CANVAS_TOKEN"):
+            kwargs["token"] = os.environ["CANVAS_TOKEN"]
+        src = build(key, store, **kwargs)
+        report = src.fetch()
 
-    if not report.ok:
-        print(f"抓取失败: {report.error}")
-        return 1
+        if not report.ok:
+            print(f"[{src.name}] 失败: {report.error}")
+            continue
 
-    print(f"{src.name} -> {len(report.items)} 条（{report.elapsed_ms} ms）\n")
-    for item in report.items[: args.limit]:
-        when = item.published.strftime("%m-%d %H:%M") if item.published else "--"
-        print(f"[{item.category or '其他'}] {when}  {item.title[:60]}")
-        if item.url:
-            print(f"           {item.url}")
+        print(f"\n=== {src.name} · {len(report.items)} 条（{report.elapsed_ms} ms）===")
+        for item in report.items[: args.limit]:
+            when = item.published.strftime("%m-%d %H:%M") if item.published else "--"
+            print(f"  [{item.category or '其他'}] {when}  {item.title[:56]}")
+            if item.deadline:
+                print(f"          截止 {item.deadline.strftime('%m-%d %H:%M')}")
+            if item.url:
+                print(f"          {item.url}")
     return 0
 
 
