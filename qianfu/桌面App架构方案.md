@@ -58,22 +58,26 @@
 - 组件库：Radix + Tailwind（可访问性好，不绑定设计）
 - 状态：TanStack Query（服务端状态）+ Zustand（本地 UI 状态）
 
-### 桌面壳：Tauri 2（首选）／ Electron（备选）
+### 桌面壳：Electron
 
-| | Tauri | Electron |
+选 Electron 而不是 Tauri，理由是**少一层不确定性**：
+
+| | Electron | Tauri |
 |---|---|---|
-| 体积 | ~10 MB + Python sidecar | ~150 MB |
-| 内存 | 低（系统 WebView） | 高 |
-| 生态 | 较新 | 最成熟（Dela 用它） |
+| 打包 Python sidecar | 直接 `child_process.spawn` | 需要额外配置 + Rust 侧进程管理 |
+| 调试 | Chrome DevTools 直接连 | 受限 |
+| 生态/文档 | 最成熟（Dela、Cherry Studio 都用它） | 较新 |
+| 体积 | ~150 MB | ~10 MB |
 
-**建议 Tauri**：壳只负责开窗口 + 拉起 Python 进程，逻辑全在后端。
-如果 WebView2 兼容性出问题，退回 Electron 的成本很低（前端代码不用改）。
+体积是唯一劣势，但对一个本地工具来说可以接受。**先跑通，再优化体积。**
+
+壳的职责被刻意压到最小：拉起 Python、等健康检查、开窗口。业务逻辑一行都不在壳里。
 
 ### 进程模型
 
 ```
 ┌──────────────┐   HTTP/WS   ┌─────────────────┐
-│  Tauri 壳     │ ──────────▶ │  Python 后端     │
+│  Electron 壳  │ ──────────▶ │  Python 后端     │
 │  (WebView)   │ ◀────────── │  FastAPI+SQLite │
 └──────────────┘             └─────────────────┘
                                     │
@@ -105,7 +109,7 @@ app/
 │   ├── jaccount/       扫码登录
 │   └── sources/        Canvas / 第二课堂 / 物理实验 / CNMOOC
 ├── ui/              设计系统（零业务依赖）
-└── shell/           Tauri 入口
+└── shell/           Electron 入口
 ```
 
 **硬规则**（用 CI 检查，Dela 也是这么做的）：
@@ -281,7 +285,7 @@ Item(
 |---|---|---|
 | M0 | FastAPI 骨架 + 现有四个源接进来 + 简单列表页 | 无（数据侧已就绪） |
 | M1 | 板块视图 + 去重存储 + 已读状态 | M0 |
-| M2 | Tauri 打包成 exe | M1 |
+| M2 | Electron 打包成 exe | M1 |
 | M3 | 插件加载 + Skill 目录 | M2 |
 | M4 | MCP server + 诊断接口 | M3 |
 | M5 | 机器人管理（接 AstrBot） | M2 |
