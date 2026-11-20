@@ -193,6 +193,27 @@ def mark_read(item_id: int) -> bool:
         conn.close()
 
 
+def delete_item(item_id: int) -> bool:
+    conn = connect()
+    try:
+        cur = conn.execute("DELETE FROM items WHERE id=?", (item_id,))
+        conn.commit()
+        return cur.rowcount > 0
+    finally:
+        conn.close()
+
+
+def delete_read_items() -> int:
+    """清掉所有已读条目。"""
+    conn = connect()
+    try:
+        cur = conn.execute("DELETE FROM items WHERE read_at IS NOT NULL")
+        conn.commit()
+        return cur.rowcount
+    finally:
+        conn.close()
+
+
 def boards() -> list[dict]:
     conn = connect()
     try:
@@ -331,17 +352,28 @@ def delete_event(event_id: int) -> bool:
         conn.close()
 
 
+# 只有这几类会铺到日历上。其它带 deadline 的条目（比如第二课堂报名截止）
+# 只留在信息流里，避免日历被塞满。
+CALENDAR_RULES: tuple[tuple[str, str], ...] = (
+    ("canvas", "作业"),
+    ("pe", "实验"),
+    ("cnmooc", "作业/测验"),
+)
+
+
 def items_with_deadline(start: str, end: str) -> list[dict]:
-    """把带截止时间的条目也铺到日历上（只读，不写回 items）。"""
+    """把「必须进日历」的条目铺到日历上（只读，不写回 items）。"""
     conn = connect()
     try:
         rows = conn.execute(
-            """SELECT id, source, board, title, deadline, url FROM items
+            """SELECT id, source, board, title, deadline, url, category FROM items
                WHERE deadline IS NOT NULL AND deadline <> ''
                  AND date(deadline) BETWEEN ? AND ?
                ORDER BY deadline""",
             (start, end),
         ).fetchall()
-        return [dict(r) for r in rows]
+        return [
+            dict(r) for r in rows if (r["source"], r["category"]) in CALENDAR_RULES
+        ]
     finally:
         conn.close()
