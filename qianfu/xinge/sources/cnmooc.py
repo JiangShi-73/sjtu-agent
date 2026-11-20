@@ -20,7 +20,7 @@ import html as htmllib
 import json
 import os
 import re
-from datetime import datetime
+from datetime import date, datetime
 
 import httpx
 
@@ -44,6 +44,7 @@ RE_ROW = re.compile(r'<td class="td1"[^>]*>\s*([^<]+?)\s*</td>(.*?)</tr>', re.S)
 RE_DEADLINE = re.compile(r"截止：\s*([\d]{4}-[\d]{2}-[\d]{2}\s+[\d]{2}:[\d]{2})")
 RE_ITEM_ID = re.compile(r'itemId="(\d+)"')
 RE_COURSE_OPEN = re.compile(r'id="courseOpenId" value="(\d+)"')
+RE_COURSE_TITLE = re.compile(r'<h3 class="model-title[^"]*"[^>]*title="([^"]+)"')
 
 
 def _clean(raw: str) -> str:
@@ -83,6 +84,8 @@ class CnmoocSource:
             with self.session.client() as client:
                 self._fetch_messages(client, report)
                 for course in load_courses():
+                    if course.get("enabled") is False:
+                        continue
                     cid = str(course.get("id", "")).strip()
                     if not cid.isdigit():
                         continue
@@ -116,6 +119,12 @@ class CnmoocSource:
         resp = client.get(EXAM_LIST.format(cid=course_id), timeout=25)
         if resp.status_code != 200:
             raise httpx.HTTPError(f"HTTP {resp.status_code}")
+
+        # 页面标题才是课程的正式名（配置里的可能只是简称）
+        m = RE_COURSE_TITLE.search(resp.text)
+        if m:
+            course_name = _clean(m.group(1))
+
         report.items.extend(self._parse_exams(resp.text, course_id, course_name))
 
     # ---------- 解析 ----------
@@ -145,7 +154,12 @@ class CnmoocSource:
         return items
 
     def _parse_exams(self, page: str, course_id: str, course_name: str) -> list[Item]:
-        """作业/测验。只有带"截止"的才算日程，其它忽略。"""
+        """作业/测验。
+
+        两条过滤规则：
+          1. 没有"截止"时间的不是日程，丢掉
+          2. 已经过期的也丢掉——这样"课程是否还在进行"等价于"还有没有未截止的作业"
+        """
         # 章节按出现顺序对齐到后面的行
         chapters = [(m.start(), _clean(m.group(1))) for m in RE_CHAPTER.finditer(page)]
 
@@ -166,7 +180,7 @@ class CnmoocSource:
                     chapter = name
 
             deadline = _parse_dt(dl.group(1))
-            if not deadline:
+            if not deadline or deadline.date() < date.today():
                 continue
 
             items.append(
