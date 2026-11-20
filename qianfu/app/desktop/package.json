@@ -1,0 +1,12 @@
+{
+  "name": "xinge-desktop",
+  "version": "0.1.0",
+  "description": "信鸽 SJTU 桌面端",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron ."
+  },
+  "devDependencies": {
+    "electron": "^33.0.0"
+  }
+}
