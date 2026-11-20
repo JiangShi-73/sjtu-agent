@@ -8,14 +8,14 @@ from __future__ import annotations
 from ..auth import SessionStore
 from .canvas import CanvasSource
 from .cnmooc import CnmoocSource
-from .pe import PeNoticeSource
+from .pe import PeSource
 from .rss import RssSource
 from .second_classroom import SecondClassroomSource
 
 __all__ = [
     "CanvasSource",
     "CnmoocSource",
-    "PeNoticeSource",
+    "PeSource",
     "RssSource",
     "SecondClassroomSource",
     "build",
@@ -25,7 +25,7 @@ __all__ = [
 _FACTORIES = {
     "canvas": lambda s, **kw: CanvasSource(s, **kw),
     "cnmooc": lambda s, **kw: CnmoocSource(s, **kw),
-    "pe": lambda s, **kw: PeNoticeSource(**kw),
+    "pe": lambda s, **kw: PeSource(s),
     "second_classroom": lambda s, **kw: SecondClassroomSource(**kw),
     "rss": lambda s, **kw: RssSource(),
 }
