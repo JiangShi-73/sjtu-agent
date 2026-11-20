@@ -18,6 +18,7 @@ DEFAULTS: dict = {
     "canvas_token": "",
     "fetch_interval_min": 30,
     "rss_feeds": [],
+    "cnmooc_courses": [],
 }
 
 
