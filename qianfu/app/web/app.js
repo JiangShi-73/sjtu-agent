@@ -387,7 +387,69 @@ async function sendChat() {
 
 async function openFeeds() {
   await renderFeeds();
+  await renderCourses();
   $("#feeds-dlg").showModal();
+}
+
+async function renderCourses() {
+  const { courses } = await api("/cnmooc/courses");
+  const box = $("#course-list");
+  box.innerHTML = "";
+
+  if (!courses.length) {
+    box.innerHTML = '<div class="feed-empty">还没有课程。加一门就能抓它的作业与测验。</div>';
+    return;
+  }
+
+  for (const c of courses) {
+    const on = c.enabled !== false;
+    const row = document.createElement("div");
+    row.className = "course-row" + (on ? "" : " off");
+
+    const cb = document.createElement("input");
+    cb.type = "checkbox";
+    cb.checked = on;
+    cb.onchange = async () => {
+      await api("/cnmooc/courses/" + c.id, {
+        method: "PATCH",
+        body: JSON.stringify({ enabled: cb.checked }),
+      });
+      renderCourses();
+    };
+
+    const name = document.createElement("div");
+    name.className = "name";
+    name.innerHTML = escapeHtml(c.name || c.id) +
+      '<span class="id">#' + escapeHtml(c.id) + "</span>";
+
+    const del = document.createElement("button");
+    del.className = "mini danger";
+    del.textContent = "删除";
+    del.onclick = async () => {
+      await api("/cnmooc/courses/" + c.id, { method: "DELETE" });
+      renderCourses();
+    };
+
+    row.append(cb, name, del);
+    box.appendChild(row);
+  }
+}
+
+async function addCourse() {
+  const url = $("#course-url").value.trim();
+  if (!url) return;
+  const r = await fetch(API + "/cnmooc/courses", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ url }),
+  });
+  if (!r.ok) { alert("添加失败：" + (await r.text()).slice(0, 120)); return; }
+  $("#course-url").value = "";
+  await renderCourses();
+  await api("/sources/cnmooc/fetch", { method: "POST" });
+  loadBoards();
+  loadItems();
+  loadCalendar();
 }
 
 async function renderFeeds() {
@@ -482,6 +544,7 @@ $("#btn-fetch").onclick = fetchAll;
 $("#btn-diag").onclick = diagnose;
 $("#btn-feeds").onclick = openFeeds;
 $("#feed-add-btn").onclick = addFeed;
+$("#course-add-btn").onclick = addCourse;
 $("#only-unread").onchange = (e) => { state.onlyUnread = e.target.checked; loadItems(); };
 $("#btn-clear-read").onclick = async () => {
   const r = await api("/items/read", { method: "DELETE" });
