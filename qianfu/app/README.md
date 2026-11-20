@@ -58,6 +58,43 @@ npm start
 
 Electron 会自动拉起 Python 后端，健康检查通过后再开窗口。
 
+## 桌面快捷方式
+
+`app/desktop/启动信鸽.vbs` 是无控制台的启动器，桌面上已创建快捷方式「信鸽 SJTU」。
+
+它做三件事：
+
+1. **移除** `ELECTRON_RUN_AS_NODE`（注意是移除，不是置空——置空仍会被当成"已设置"）
+2. 指定 `XINGE_PYTHON` 为绝对路径，不依赖 PATH
+3. 启动 `electron.exe <app 目录>`，用绝对路径而不是 `.`，不依赖当前目录
+
+想重建快捷方式（换图标/换位置）：
+
+```powershell
+$ws = New-Object -ComObject WScript.Shell
+$sc = $ws.CreateShortcut("$env:USERPROFILE\Desktop\信鸽 SJTU.lnk")
+$sc.TargetPath = "C:\Windows\System32\wscript.exe"
+$sc.Arguments = '"<项目>\qianfu\app\desktop\启动信鸽.vbs"'
+$sc.WorkingDirectory = "<项目>\qianfu\app\desktop"
+$sc.IconLocation = "<项目>\qianfu\app\desktop\xinge.ico,0"
+$sc.Save()
+```
+
+## 配置
+
+API Key 不放在环境变量里（快捷方式启动没有环境变量），统一落在
+`~/.xinge/config.json`，由 `/api/v1/settings` 读写：
+
+```json
+{
+  "sjtu_api_key": "1ae5…02e2",
+  "canvas_token": "",
+  "fetch_interval_min": 30
+}
+```
+
+读取优先级：**环境变量 > 配置文件**，方便临时调试。
+
 ## 接口一览
 
 | 方法 | 路径 | 说明 |
