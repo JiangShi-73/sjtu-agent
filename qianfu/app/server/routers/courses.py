@@ -37,6 +37,32 @@ def list_courses():
     return {"courses": _courses()}
 
 
+@router.post("/cnmooc/discover")
+def discover():
+    """自动检测「正在进行」的课程（用真实浏览器，接口拦非浏览器请求）。"""
+    from xinge.sources.cnmooc import discover_courses
+
+    found = discover_courses(SessionStore())
+    if not found:
+        return {
+            "ok": False,
+            "error": "没能自动检测：需要 Playwright + 本机 Edge/Chrome，且登录态有效",
+            "courses": _courses(),
+        }
+
+    existing = {c.get("id"): c for c in _courses()}
+    merged = [
+        {
+            "id": c["id"],
+            "name": c.get("name") or existing.get(c["id"], {}).get("name", ""),
+            "enabled": existing.get(c["id"], {}).get("enabled", True),
+        }
+        for c in found
+    ]
+    _save(merged)
+    return {"ok": True, "courses": merged, "count": len(merged)}
+
+
 @router.post("/cnmooc/courses")
 def add_course(body: dict):
     raw = (body.get("url") or body.get("id") or "").strip()

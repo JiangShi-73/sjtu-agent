@@ -545,6 +545,27 @@ $("#btn-diag").onclick = diagnose;
 $("#btn-feeds").onclick = openFeeds;
 $("#feed-add-btn").onclick = addFeed;
 $("#course-add-btn").onclick = addCourse;
+$("#course-discover").onclick = async () => {
+  const btn = $("#course-discover");
+  btn.disabled = true;
+  btn.textContent = "检测中…";
+  try {
+    const r = await fetch(API + "/cnmooc/discover", { method: "POST" });
+    const data = await r.json();
+    if (!data.ok) {
+      alert(data.error || "检测失败");
+    } else {
+      await renderCourses();
+      await api("/sources/cnmooc/fetch", { method: "POST" });
+      loadBoards();
+      loadItems();
+      loadCalendar();
+    }
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "自动检测课程";
+  }
+};
 $("#only-unread").onchange = (e) => { state.onlyUnread = e.target.checked; loadItems(); };
 $("#btn-clear-read").onclick = async () => {
   const r = await api("/items/read", { method: "DELETE" });
