@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>信鸽 SJTU</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <aside class="sidebar">
+    <div class="brand">
+      <span class="dot"></span>
+      <span>信鸽 SJTU</span>
+    </div>
+
+    <nav id="boards" class="boards"></nav>
+
+    <div class="sidebar-foot">
+      <button id="btn-fetch" class="primary">抓取全部</button>
+      <button id="btn-diag">诊断</button>
+      <div id="status" class="status"></div>
+    </div>
+  </aside>
+
+  <main>
+    <header class="topbar">
+      <h1 id="board-title">全部</h1>
+      <div class="topbar-right">
+        <label class="switch">
+          <input type="checkbox" id="only-unread" />
+          <span>只看未读</span>
+        </label>
+        <span id="count" class="count"></span>
+      </div>
+    </header>
+
+    <section id="items" class="items"></section>
+  </main>
+
+  <dialog id="diag">
+    <h2>诊断</h2>
+    <div id="diag-body"></div>
+    <form method="dialog"><button>关闭</button></form>
+  </dialog>
+
+  <script src="app.js" type="module"></script>
+</body>
+</html>
