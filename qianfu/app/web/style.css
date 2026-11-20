@@ -83,6 +83,10 @@ button.danger { color: var(--danger); border-color: #f0c9c4; }
 .item:hover { border-color: #c8cdd6; }
 .item.read { opacity: .55; }
 .item-head { display: flex; align-items: center; gap: 8px; margin-bottom: 5px; }
+.item-head .spacer { flex: 1; }
+.item-actions { display: flex; gap: 6px; opacity: 0; transition: opacity .12s; }
+.item:hover .item-actions { opacity: 1; }
+.item-actions button { padding: 2px 8px; font-size: 11px; border-radius: 6px; }
 .tag {
   font-size: 11px; padding: 2px 7px; border-radius: 999px;
   background: var(--accent-soft); color: var(--accent); white-space: nowrap;

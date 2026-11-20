@@ -76,16 +76,38 @@ async function loadItems() {
   for (const it of items) {
     const el = document.createElement("article");
     el.className = "item" + (it.read ? " read" : "");
+    const canSchedule = it.source === "second_classroom";
+
     el.innerHTML =
       '<div class="item-head">' +
         (it.category ? '<span class="tag">' + escapeHtml(it.category) + "</span>" : "") +
         '<span class="item-title">' + escapeHtml(it.title) + "</span>" +
+        '<span class="spacer"></span>' +
+        '<span class="item-actions">' +
+          (canSchedule ? '<button data-act="schedule">加入日程</button>' : "") +
+          '<button data-act="delete" class="danger">删除</button>' +
+        "</span>" +
       "</div>" +
       (it.summary ? '<div class="item-summary">' + escapeHtml(it.summary) + "</div>" : "") +
       '<div class="item-foot">' +
         "<span>" + fmt(it.published || it.created_at) + "</span>" +
         (it.deadline ? '<span class="deadline">截止 ' + fmt(it.deadline) + "</span>" : "") +
       "</div>";
+
+    el.querySelectorAll(".item-actions button").forEach((btn) => {
+      btn.onclick = async (e) => {
+        e.stopPropagation();
+        if (btn.dataset.act === "delete") {
+          await api("/items/" + it.id, { method: "DELETE" });
+        } else if (btn.dataset.act === "schedule") {
+          const r = await api("/items/" + it.id + "/schedule", { method: "POST" });
+          if (r.ok) $("#status").textContent = "已加入 " + r.event.event_date + " 的日程";
+          loadCalendar();
+        }
+        loadBoards();
+        loadItems();
+      };
+    });
 
     el.onclick = async () => {
       if (!it.read) {
@@ -461,6 +483,13 @@ $("#btn-diag").onclick = diagnose;
 $("#btn-feeds").onclick = openFeeds;
 $("#feed-add-btn").onclick = addFeed;
 $("#only-unread").onchange = (e) => { state.onlyUnread = e.target.checked; loadItems(); };
+$("#btn-clear-read").onclick = async () => {
+  const r = await api("/items/read", { method: "DELETE" });
+  $("#status").textContent = "已清理 " + r.deleted + " 条已读";
+  loadBoards();
+  loadItems();
+  loadCalendar();
+};
 $("#event-form").addEventListener("submit", saveDialog);
 $("#f-cancel").onclick = () => $("#event-dlg").close();
 $("#f-delete").onclick = deleteDialog;
