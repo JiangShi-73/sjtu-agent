@@ -27,6 +27,35 @@ def _open_file(path: Path) -> None:
         pass
 
 
+def _write_viewer(png: Path) -> Path:
+    """写一个自动刷新的本地页面。
+
+    二维码每 55 秒换一张，聊天窗口里的图片是静态的，
+    但浏览器里的这个页面会跟着 png 一起更新。
+    """
+    html = png.with_suffix(".html")
+    html.write_text(
+        f"""<!doctype html>
+<meta charset="utf-8">
+<title>扫码登录 - 信鸽 SJTU</title>
+<body style="display:flex;flex-direction:column;align-items:center;
+             font-family:system-ui,sans-serif;padding-top:40px;background:#fafafa">
+  <h2 style="margin:0 0 6px">用微信扫一扫</h2>
+  <p style="color:#666;margin:0 0 18px">也可以在 My SJTU App 里扫</p>
+  <img id="q" src="{png.name}" width="280" height="280"
+       style="border:1px solid #e5e5e5;border-radius:8px;background:#fff;padding:10px">
+  <p style="color:#999;font-size:13px;margin-top:16px">二维码自动刷新，扫完这个页面可以关掉</p>
+  <script>
+    setInterval(() => {{
+      document.getElementById('q').src = '{png.name}?t=' + Date.now();
+    }}, 2000);
+  </script>
+</body>""",
+        encoding="utf-8",
+    )
+    return html
+
+
 def cmd_sites(args) -> int:
     store = SessionStore()
     login = JAccountLogin(store)
@@ -56,7 +85,7 @@ def cmd_qr(args) -> int:
         print(f"{site.name} 已是登录状态，无需扫码。")
         return 0
 
-    out = Path(args.out or f"qr-{site.key}.png")
+    out = Path(args.out or f"qr-{site.key}-{challenge.uuid[:8]}.png")
     challenge.save(str(out))
     print(f"二维码已保存: {out.resolve()}")
     print(f"uuid: {challenge.uuid}")
@@ -82,15 +111,20 @@ def cmd_login(args) -> int:
             print(f"       已登录")
             continue
 
-        out = Path(f"qr-{site.key}.png")
+        out = Path(f"qr-{site.key}-{challenge.uuid[:8]}.png")
         challenge.save(str(out))
         print(f"       二维码: {out.resolve()}")
         print(f"       请用微信或 My SJTU 扫码（{args.timeout}s 内有效）")
         if args.open:
-            _open_file(out)
+            _open_file(_write_viewer(out))
 
         try:
-            ok = login.wait(challenge, timeout=args.timeout)
+            # 二维码会过期：每次服务端下发新码时，同步覆盖磁盘上的图片
+            ok = login.wait(
+                challenge,
+                timeout=args.timeout,
+                on_refresh=lambda png: challenge.save(str(out)),
+            )
         except JAccountError as exc:
             print(f"       失败: {exc}")
             continue
