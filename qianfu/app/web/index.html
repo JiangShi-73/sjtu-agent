@@ -13,6 +13,11 @@
       <span>信鸽 SJTU</span>
     </div>
 
+    <nav class="views">
+      <button class="view-btn active" data-view="feed">信息流</button>
+      <button class="view-btn" data-view="calendar">日程</button>
+    </nav>
+
     <nav id="boards" class="boards"></nav>
 
     <div class="sidebar-foot">
@@ -26,16 +31,76 @@
     <header class="topbar">
       <h1 id="board-title">全部</h1>
       <div class="topbar-right">
-        <label class="switch">
+        <label class="switch" id="unread-wrap">
           <input type="checkbox" id="only-unread" />
           <span>只看未读</span>
         </label>
+        <div class="cal-nav" id="cal-nav" hidden>
+          <button id="cal-prev">‹</button>
+          <span id="cal-label"></span>
+          <button id="cal-next">›</button>
+          <button id="cal-today">今天</button>
+        </div>
         <span id="count" class="count"></span>
       </div>
     </header>
 
     <section id="items" class="items"></section>
+
+    <section id="calendar" class="calendar" hidden>
+      <div class="cal-weekhead">
+        <span>周一</span><span>周二</span><span>周三</span><span>周四</span>
+        <span>周五</span><span>周六</span><span>周日</span>
+      </div>
+      <div id="cal-grid" class="cal-grid"></div>
+
+      <div class="chat">
+        <div id="chat-log" class="chat-log"></div>
+        <div class="chat-row">
+          <input id="chat-input" placeholder="一句话安排日程：明天下午3点在图书馆开会" />
+          <button id="chat-send" class="primary">安排</button>
+        </div>
+      </div>
+    </section>
   </main>
+
+  <dialog id="event-dlg">
+    <form method="dialog" id="event-form">
+      <h2 id="dlg-title">编辑事件</h2>
+      <label class="field">
+        <span>题目</span>
+        <input id="f-title" required placeholder="输入事件标题…" />
+      </label>
+      <label class="field">
+        <span>日期</span>
+        <input id="f-date" type="date" required />
+      </label>
+      <div class="field-row">
+        <label class="field">
+          <span>从</span>
+          <input id="f-start" type="time" />
+        </label>
+        <label class="field">
+          <span>至</span>
+          <input id="f-end" type="time" />
+        </label>
+      </div>
+      <label class="field">
+        <span>位置</span>
+        <input id="f-location" placeholder="输入事件位置…" />
+      </label>
+      <label class="field">
+        <span>备注</span>
+        <textarea id="f-note" rows="2" placeholder="可选"></textarea>
+      </label>
+      <div class="dlg-actions">
+        <button type="button" id="f-delete" class="danger" hidden>删除</button>
+        <span class="spacer"></span>
+        <button type="button" id="f-cancel">取消</button>
+        <button type="submit" class="primary">保存</button>
+      </div>
+    </form>
+  </dialog>
 
   <dialog id="diag">
     <h2>诊断</h2>
