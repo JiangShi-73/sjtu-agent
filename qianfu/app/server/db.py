@@ -59,6 +59,20 @@ CREATE TABLE IF NOT EXISTS settings (
     key   TEXT PRIMARY KEY,
     value TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS events (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    title      TEXT NOT NULL,
+    event_date TEXT NOT NULL,
+    start_time TEXT DEFAULT '',
+    end_time   TEXT DEFAULT '',
+    location   TEXT DEFAULT '',
+    note       TEXT DEFAULT '',
+    source     TEXT NOT NULL DEFAULT 'manual',
+    done       INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_events_date ON events(event_date);
 """
 
 DEFAULT_BOARDS = [
@@ -233,5 +247,94 @@ def set_setting(key: str, value: str) -> None:
             (key, value),
         )
         conn.commit()
+    finally:
+        conn.close()
+
+# ---------------- 日程 ----------------
+
+def create_event(data: dict) -> dict:
+    conn = connect()
+    now = datetime.now().isoformat(timespec="seconds")
+    try:
+        cur = conn.execute(
+            """INSERT INTO events(title, event_date, start_time, end_time,
+                                  location, note, source, created_at)
+               VALUES (?,?,?,?,?,?,?,?)""",
+            (
+                data["title"].strip(),
+                data["event_date"],
+                data.get("start_time", ""),
+                data.get("end_time", ""),
+                data.get("location", ""),
+                data.get("note", ""),
+                data.get("source", "manual"),
+                now,
+            ),
+        )
+        conn.commit()
+        return get_event(cur.lastrowid)
+    finally:
+        conn.close()
+
+
+def get_event(event_id: int) -> dict:
+    conn = connect()
+    try:
+        row = conn.execute("SELECT * FROM events WHERE id=?", (event_id,)).fetchone()
+        return dict(row) if row else {}
+    finally:
+        conn.close()
+
+
+def list_events(start: str, end: str) -> list[dict]:
+    conn = connect()
+    try:
+        rows = conn.execute(
+            "SELECT * FROM events WHERE event_date BETWEEN ? AND ? ORDER BY event_date, start_time",
+            (start, end),
+        ).fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        conn.close()
+
+
+def update_event(event_id: int, data: dict) -> dict:
+    fields = {k: v for k, v in data.items() if k in {
+        "title", "event_date", "start_time", "end_time", "location", "note", "done",
+    }}
+    if not fields:
+        return get_event(event_id)
+    conn = connect()
+    try:
+        sets = ", ".join(f"{k}=?" for k in fields)
+        conn.execute(f"UPDATE events SET {sets} WHERE id=?", (*fields.values(), event_id))
+        conn.commit()
+        return get_event(event_id)
+    finally:
+        conn.close()
+
+
+def delete_event(event_id: int) -> bool:
+    conn = connect()
+    try:
+        cur = conn.execute("DELETE FROM events WHERE id=?", (event_id,))
+        conn.commit()
+        return cur.rowcount > 0
+    finally:
+        conn.close()
+
+
+def items_with_deadline(start: str, end: str) -> list[dict]:
+    """把带截止时间的条目也铺到日历上（只读，不写回 items）。"""
+    conn = connect()
+    try:
+        rows = conn.execute(
+            """SELECT id, source, board, title, deadline, url FROM items
+               WHERE deadline IS NOT NULL AND deadline <> ''
+                 AND date(deadline) BETWEEN ? AND ?
+               ORDER BY deadline""",
+            (start, end),
+        ).fetchall()
+        return [dict(r) for r in rows]
     finally:
         conn.close()
