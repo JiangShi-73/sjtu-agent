@@ -48,8 +48,13 @@ class QRChallenge:
     created: float = field(default_factory=time.time)
 
     def save(self, path: str) -> str:
-        with open(path, "wb") as fh:
-            fh.write(self.image)
+        try:
+            with open(path, "wb") as fh:
+                fh.write(self.image)
+        except OSError as exc:
+            raise JAccountError(
+                f"写入二维码失败（文件可能被图片查看器占用）: {path} — {exc}"
+            ) from exc
         return path
 
 
@@ -61,6 +66,18 @@ class JAccountLogin:
 
     def __init__(self, session: SessionStore) -> None:
         self.session = session
+
+    @staticmethod
+    def _log(msg: str) -> None:
+        import os
+        from pathlib import Path
+
+        if not os.environ.get("XINGE_DEBUG"):
+            return
+        path = Path.home() / ".xinge" / "login.log"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with open(path, "a", encoding="utf-8") as fh:
+            fh.write(f"{time.strftime('%H:%M:%S')} {msg}\n")
 
     # ---------------- 状态判定 ----------------
 
@@ -89,6 +106,7 @@ class JAccountLogin:
         client = self.session.client()
         try:
             resp = client.get(site.sso_url, timeout=20)
+            self.session.merge(client.cookies)
             if JA_HOST not in str(resp.url):
                 self.session.save()
                 return None
@@ -109,7 +127,8 @@ class JAccountLogin:
             client.close()
 
     def _open_ws(self, uuid: str) -> websocket.WebSocket:
-        cookie = self.session.cookie_header(JA_HOST)
+        # 只带 /jaccount 路径下的会话，避免和 /oauth2 的 JSESSIONID 混淆
+        cookie = self.session.cookie_header(JA_HOST, path_prefix="/jaccount")
         return websocket.create_connection(
             f"wss://{JA_HOST}/jaccount/sub/{uuid}",
             header=[
@@ -171,14 +190,21 @@ class JAccountLogin:
                 except websocket.WebSocketTimeoutException:
                     continue
 
+                self._log(f"ws msg: {raw[:120]!r}")
                 msg = json.loads(raw)
                 kind = msg.get("type")
 
                 if kind == "LOGIN":
-                    client.get(
+                    self._log(f"LOGIN received, uuid={challenge.uuid}")
+                    resp = client.get(
                         f"https://{JA_HOST}/jaccount/expresslogin",
                         params={"uuid": challenge.uuid},
                         timeout=25,
+                    )
+                    self.session.merge(client.cookies)
+                    self._log(
+                        f"expresslogin -> {resp.status_code} {str(resp.url)[:80]} "
+                        f"cookies={len(list(self.session._jar.jar))}"
                     )
                     self.session.save()
                     return True

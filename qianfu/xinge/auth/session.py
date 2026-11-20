@@ -64,20 +64,42 @@ class SessionStore:
     # ---------- 使用 ----------
 
     def client(self, **kwargs) -> httpx.Client:
-        """返回共享同一 CookieJar 的客户端；用完请 close()。"""
-        client = httpx.Client(
+        """创建一个带当前 cookie 的客户端。
+
+        注意：httpx 的 cookies setter 会**拷贝**一份 CookieJar，
+        所以 client 里新拿到的 cookie 不会自动回到 self._jar，
+        用完必须调用 merge(client.cookies) 同步回来。
+        """
+        return httpx.Client(
+            cookies=self._jar,
             follow_redirects=True,
             timeout=kwargs.pop("timeout", 20),
             headers={"User-Agent": UA},
             **kwargs,
         )
-        client.cookies = self._jar          # 共享，写入即持久
-        return client
 
-    def cookie_header(self, domain: str) -> str:
-        return "; ".join(
-            f"{c.name}={c.value}" for c in self._jar.jar if domain in c.domain
-        )
+    def merge(self, cookies: httpx.Cookies) -> int:
+        """把客户端里的 cookie 合并回持久化 jar。"""
+        added = 0
+        for c in cookies.jar:
+            self._jar.set(c.name, c.value, domain=c.domain, path=c.path)
+            added += 1
+        return added
+
+    def cookie_header(self, domain: str, path_prefix: str | None = None) -> str:
+        """拼 Cookie 头。
+
+        jAccount 会同时下发多个同名 JSESSIONID（/oauth2 与 /jaccount 各一个），
+        必须按 path 过滤，否则会把错的会话发给服务端。
+        """
+        parts = []
+        for c in self._jar.jar:
+            if domain not in c.domain:
+                continue
+            if path_prefix and not c.path.startswith(path_prefix):
+                continue
+            parts.append(f"{c.name}={c.value}")
+        return "; ".join(parts)
 
     def has(self, domain: str) -> bool:
         return any(domain in c.domain for c in self._jar.jar)
