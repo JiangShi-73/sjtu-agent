@@ -129,6 +129,48 @@ API Key 不放在环境变量里（快捷方式启动没有环境变量），统
 
 没配 AI Key 也能用；将来接上模型只是**增强**，不是前提。
 
+## 公众号 / RSS
+
+公众号**没有官方开放接口**，社区通行做法是先转成 RSS 再消费。所以这里拆成两半：
+
+```
+公众号  ──(WeWe RSS)──▶  RSS/Atom  ──▶  信鸽（RssSource）
+```
+
+信鸽这半已经做好：`xinge/sources/rss.py` 支持 RSS 2.0 和 Atom，
+点侧栏「订阅」就能加地址，抓完自动归到「公众号」板块。
+
+### 为什么不在 App 里内置 WeWe RSS
+
+它需要 MySQL（或 Docker），而且登录必须用微信扫码。塞进 Electron 会让
+安装包多出几百 MB 和一个数据库进程，得不偿失。**它是独立服务，信鸽只消费它的输出。**
+
+### 部署 WeWe RSS（一次性）
+
+```bash
+docker run -d --name wewe-rss \
+  -p 4000:4000 \
+  -e DATABASE_TYPE=sqlite \
+  -e AUTH_CODE=yourpassword \
+  -e TZ=Asia/Shanghai \
+  -v $(pwd)/wewe-data:/app/data \
+  cooderl/wewe-rss-sqlite:latest
+```
+
+打开 `http://127.0.0.1:4000`：
+
+1. 账号管理 → 添加账号 → **微信扫码登录微信读书**（注意：不是登录微信本体）
+2. 公众号源 → 添加 → 粘贴公众号文章链接
+3. 复制该源生成的 Atom 地址，形如 `http://127.0.0.1:4000/feeds/<id>.atom`
+4. 回到信鸽 → 订阅 → 粘贴地址 → 板块选「公众号」
+
+### ⚠️ 风险
+
+- **一定用小号**。WeWe RSS 登录的是微信读书，但订阅频率过高会被风控，
+  文档里叫「今日小黑屋」，24 小时后解封。
+- 不要一次加几十个公众号，分批加。
+- 不要用主号——万一被限制，影响的是日常使用的账号。
+
 ## 接口一览
 
 | 方法 | 路径 | 说明 |
@@ -148,6 +190,9 @@ API Key 不放在环境变量里（快捷方式启动没有环境变量），统
 | DELETE | `/api/v1/events/{id}` | 删除日程 |
 | POST | `/api/v1/events/parse` | 只解析不落库（预览） |
 | POST | `/api/v1/chat` | 一句话建日程 |
+| GET | `/api/v1/feeds` | RSS / 公众号订阅列表 |
+| POST | `/api/v1/feeds` | 添加订阅 |
+| DELETE | `/api/v1/feeds?url=` | 删除订阅 |
 | GET | `/api/v1/fixes` | 可用修复动作 |
 | POST | `/api/v1/repair` | 执行修复 |
 | WS | `/ws` | 事件流 |
