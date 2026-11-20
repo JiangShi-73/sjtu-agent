@@ -12,56 +12,57 @@
       <span class="dot"></span>
       <span>信鸽 SJTU</span>
     </div>
-
-    <nav class="views">
-      <button class="view-btn active" data-view="feed">信息流</button>
-      <button class="view-btn" data-view="calendar">日程</button>
-    </nav>
-
     <nav id="boards" class="boards"></nav>
-
     <div class="sidebar-foot">
       <button id="btn-fetch" class="primary">抓取全部</button>
-      <button id="btn-diag">诊断</button>
+      <div class="btn-row">
+        <button id="btn-feeds">订阅</button>
+        <button id="btn-diag">诊断</button>
+      </div>
       <div id="status" class="status"></div>
     </div>
   </aside>
 
-  <main>
+  <aside class="cal-pane">
+    <div class="cal-head">
+      <button id="cal-prev" title="上个月">‹</button>
+      <span id="cal-label"></span>
+      <button id="cal-next" title="下个月">›</button>
+      <button id="cal-today">今天</button>
+    </div>
+    <div class="cal-weekhead">
+      <span>一</span><span>二</span><span>三</span><span>四</span>
+      <span>五</span><span>六</span><span>日</span>
+    </div>
+    <div id="cal-grid" class="cal-grid"></div>
+
+    <div class="day-head">
+      <span id="day-label"></span>
+      <button id="day-add" class="mini primary">+ 新建</button>
+    </div>
+    <div id="day-list" class="day-list"></div>
+
+    <div class="chat">
+      <div id="chat-log" class="chat-log"></div>
+      <div class="chat-row">
+        <input id="chat-input" placeholder="明天下午3点 图书馆开会" />
+        <button id="chat-send" class="primary">安排</button>
+      </div>
+    </div>
+  </aside>
+
+  <main class="feed-pane">
     <header class="topbar">
       <h1 id="board-title">全部</h1>
       <div class="topbar-right">
-        <label class="switch" id="unread-wrap">
+        <label class="switch">
           <input type="checkbox" id="only-unread" />
           <span>只看未读</span>
         </label>
-        <div class="cal-nav" id="cal-nav" hidden>
-          <button id="cal-prev">‹</button>
-          <span id="cal-label"></span>
-          <button id="cal-next">›</button>
-          <button id="cal-today">今天</button>
-        </div>
         <span id="count" class="count"></span>
       </div>
     </header>
-
     <section id="items" class="items"></section>
-
-    <section id="calendar" class="calendar" hidden>
-      <div class="cal-weekhead">
-        <span>周一</span><span>周二</span><span>周三</span><span>周四</span>
-        <span>周五</span><span>周六</span><span>周日</span>
-      </div>
-      <div id="cal-grid" class="cal-grid"></div>
-
-      <div class="chat">
-        <div id="chat-log" class="chat-log"></div>
-        <div class="chat-row">
-          <input id="chat-input" placeholder="一句话安排日程：明天下午3点在图书馆开会" />
-          <button id="chat-send" class="primary">安排</button>
-        </div>
-      </div>
-    </section>
   </main>
 
   <dialog id="event-dlg">
@@ -100,6 +101,27 @@
         <button type="submit" class="primary">保存</button>
       </div>
     </form>
+  </dialog>
+
+  <dialog id="feeds-dlg">
+    <h2>RSS / 公众号订阅</h2>
+    <p class="hint">
+      公众号没有官方接口，通常先用
+      <b>WeWe RSS</b> 把它转成 RSS，再把地址贴到这里。
+    </p>
+    <div id="feed-list" class="feed-list"></div>
+    <div class="feed-add">
+      <input id="feed-name" placeholder="名称，如「某公众号」" />
+      <input id="feed-url" placeholder="RSS 地址" />
+      <div class="feed-add-row">
+        <select id="feed-board">
+          <option value="wechat">公众号</option>
+          <option value="custom">自定义</option>
+        </select>
+        <button id="feed-add-btn" class="primary">添加</button>
+      </div>
+    </div>
+    <form method="dialog"><button>关闭</button></form>
   </dialog>
 
   <dialog id="diag">
