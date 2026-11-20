@@ -9,12 +9,14 @@ from ..auth import SessionStore
 from .canvas import CanvasSource
 from .cnmooc import CnmoocSource
 from .pe import PeNoticeSource
+from .rss import RssSource
 from .second_classroom import SecondClassroomSource
 
 __all__ = [
     "CanvasSource",
     "CnmoocSource",
     "PeNoticeSource",
+    "RssSource",
     "SecondClassroomSource",
     "build",
 ]
@@ -25,6 +27,7 @@ _FACTORIES = {
     "cnmooc": lambda s, **kw: CnmoocSource(s, **kw),
     "pe": lambda s, **kw: PeNoticeSource(**kw),
     "second_classroom": lambda s, **kw: SecondClassroomSource(**kw),
+    "rss": lambda s, **kw: RssSource(),
 }
 
 

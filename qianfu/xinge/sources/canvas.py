@@ -60,14 +60,20 @@ class CanvasSource:
         if not title:
             return None
         kind = raw.get("plannable_type") or "unknown"
-        due = raw.get("plannable_date")
+        when = raw.get("plannable_date")
+
+        # 作业要带 deadline，日历才能自动铺上去；
+        # 公告只有发布时间，不当作截止时间。
+        due_at = plannable.get("due_at") if kind == "assignment" else None
+
         return Item(
             source="canvas",
             uid=f"{kind}:{raw.get('plannable_id')}",
             title=title,
             url=_absolute(raw.get("html_url")),
             category={"announcement": "公告", "assignment": "作业"}.get(kind, kind),
-            published=_parse(due),
+            published=_parse(when),
+            deadline=_parse(due_at),
             extra={"course_id": raw.get("course_id")},
         )
 
