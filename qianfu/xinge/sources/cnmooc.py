@@ -52,15 +52,110 @@ def _clean(raw: str) -> str:
     return re.sub(r"\s+", " ", htmllib.unescape(raw)).strip()
 
 
-def load_courses() -> list[dict]:
-    path = os.path.join(os.path.expanduser("~"), ".xinge", "config.json")
-    if not os.path.exists(path):
-        return []
+CONFIG_PATH = os.path.join(os.path.expanduser("~"), ".xinge", "config.json")
+MY_COURSES = f"{BASE}/portal/myCourseIndex/1.mooc"
+
+# 注意：DOM 里属性名会被小写化（ucid），所以用 re.I
+RE_CARD = re.compile(
+    r'<li[^>]*class="view-item"[^>]*ucId="(\d+)"(.*?)(?=<li[^>]*class="view-item"|$)',
+    re.S | re.I,
+)
+RE_CARD_TITLE = re.compile(r'<h3 class="view-title[^"]*"[^>]*>(.*?)</h3>', re.S)
+RE_CARD_ID = re.compile(r"/portal/session/index/(\d+)\.mooc")
+
+
+def _read_config() -> dict:
+    if not os.path.exists(CONFIG_PATH):
+        return {}
     try:
-        with open(path, encoding="utf-8") as fh:
-            return json.load(fh).get("cnmooc_courses") or []
+        with open(CONFIG_PATH, encoding="utf-8") as fh:
+            return json.load(fh)
     except (OSError, json.JSONDecodeError):
+        return {}
+
+
+def load_courses() -> list[dict]:
+    return _read_config().get("cnmooc_courses") or []
+
+
+def save_courses(courses: list[dict]) -> None:
+    cfg = _read_config()
+    cfg["cnmooc_courses"] = courses
+    os.makedirs(os.path.dirname(CONFIG_PATH), exist_ok=True)
+    with open(CONFIG_PATH, "w", encoding="utf-8") as fh:
+        json.dump(cfg, fh, ensure_ascii=False, indent=2)
+
+
+def parse_course_cards(html: str) -> list[dict]:
+    out: list[dict] = []
+    for _uc, block in RE_CARD.findall(html):
+        cid = RE_CARD_ID.search(block)
+        title = RE_CARD_TITLE.search(block)
+        if not cid:
+            continue
+        name = re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", title.group(1))).strip() if title else ""
+        out.append({"id": cid.group(1), "name": name, "enabled": True})
+    return out
+
+
+def discover_courses(session: SessionStore) -> list[dict]:
+    """用真实浏览器拿「正在进行」的课程。
+
+    课程列表接口会按客户端指纹拦截（httpx / curl_cffi 都是 408），
+    只有真浏览器能过，所以这里用 Playwright + 系统 Edge，不额外下载内核。
+    """
+    try:
+        from playwright.sync_api import sync_playwright
+    except ImportError:
         return []
+
+    cookies = [
+        {"name": c.name, "value": c.value, "domain": c.domain, "path": c.path or "/"}
+        for c in session._jar.jar
+        if "cnmooc.sjtu.cn" in c.domain
+    ]
+    if not cookies:
+        return []
+
+    with sync_playwright() as p:
+        browser = None
+        for channel in ("msedge", "chrome", None):
+            try:
+                browser = (
+                    p.chromium.launch(channel=channel, headless=True)
+                    if channel
+                    else p.chromium.launch(headless=True)
+                )
+                break
+            except Exception:
+                continue
+        if browser is None:
+            return []
+
+        try:
+            ctx = browser.new_context(
+                user_agent=(
+                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                    "(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+                )
+            )
+            ctx.add_cookies(cookies)
+            page = ctx.new_page()
+
+            # 直接读渲染后的 DOM：比抓 AJAX 响应稳，页面自己会等接口返回
+            for _ in range(2):
+                try:
+                    page.goto(MY_COURSES, wait_until="domcontentloaded", timeout=45000)
+                    # 卡片可能在隐藏的 tab 里，只等挂载不等可见
+                    page.wait_for_selector("li.view-item", state="attached", timeout=25000)
+                    cards = parse_course_cards(page.content())
+                    if cards:
+                        return cards
+                except Exception:
+                    page.wait_for_timeout(3000)
+            return []
+        finally:
+            browser.close()
 
 
 @register_source
@@ -83,7 +178,16 @@ class CnmoocSource:
         try:
             with self.session.client() as client:
                 self._fetch_messages(client, report)
-                for course in load_courses():
+
+                courses = load_courses()
+                if not courses:
+                    # 第一次跑：自动检测一次并写回配置
+                    found = discover_courses(self.session)
+                    if found:
+                        save_courses(found)
+                        courses = found
+
+                for course in courses:
                     if course.get("enabled") is False:
                         continue
                     cid = str(course.get("id", "")).strip()
@@ -91,7 +195,7 @@ class CnmoocSource:
                         continue
                     try:
                         self._fetch_exams(client, cid, course.get("name") or cid, report)
-                    except httpx.HTTPError as exc:
+                    except Exception as exc:      # 单门课失败不能拖垮整体
                         errors.append(f"{course.get('name') or cid}: {exc}")
         except httpx.HTTPError as exc:
             report.ok = False
@@ -116,7 +220,7 @@ class CnmoocSource:
     def _fetch_exams(
         self, client: httpx.Client, course_id: str, course_name: str, report: FetchReport
     ) -> None:
-        resp = client.get(EXAM_LIST.format(cid=course_id), timeout=25)
+        resp = client.get(EXAM_LIST.format(cid=course_id), timeout=15)
         if resp.status_code != 200:
             raise httpx.HTTPError(f"HTTP {resp.status_code}")
 
