@@ -8,10 +8,7 @@
 </head>
 <body>
   <aside class="sidebar">
-    <div class="brand">
-      <span class="dot"></span>
-      <span>信鸽 SJTU</span>
-    </div>
+    <div class="brand"><span class="dot"></span><span>信鸽 SJTU</span></div>
     <nav id="boards" class="boards"></nav>
     <div class="sidebar-foot">
       <button id="btn-fetch" class="primary">抓取全部</button>
@@ -23,18 +20,59 @@
     </div>
   </aside>
 
-  <aside class="cal-pane">
-    <div class="cal-head">
-      <button id="cal-prev" title="上个月">‹</button>
-      <span id="cal-label"></span>
-      <button id="cal-next" title="下个月">›</button>
-      <button id="cal-today">今天</button>
+  <main class="main">
+    <!-- 信息流 -->
+    <section id="feed-view" class="view">
+      <header class="topbar">
+        <h1 id="board-title">全部</h1>
+        <div class="topbar-right">
+          <label class="switch">
+            <input type="checkbox" id="only-unread" />
+            <span>只看未读</span>
+          </label>
+          <span id="count" class="count"></span>
+        </div>
+      </header>
+      <section id="items" class="items"></section>
+    </section>
+
+    <!-- 整页日历 -->
+    <section id="calendar-view" class="view" hidden>
+      <header class="topbar">
+        <h1>日历</h1>
+        <div class="topbar-right">
+          <div class="cal-nav">
+            <button id="cal-prev">‹</button>
+            <span id="cal-label"></span>
+            <button id="cal-next">›</button>
+            <button id="cal-today">今天</button>
+          </div>
+          <button id="cal-close">返回信息流</button>
+        </div>
+      </header>
+      <div class="big-cal">
+        <div class="big-weekhead">
+          <span>周一</span><span>周二</span><span>周三</span><span>周四</span>
+          <span>周五</span><span>周六</span><span>周日</span>
+        </div>
+        <div id="big-grid" class="big-grid"></div>
+      </div>
+    </section>
+  </main>
+
+  <!-- 右侧日历栏 -->
+  <aside id="rail" class="rail">
+    <div class="rail-head">
+      <button id="rail-prev">‹</button>
+      <span id="rail-label"></span>
+      <button id="rail-next">›</button>
+      <button id="rail-expand" title="展开整页日历">⤢</button>
     </div>
-    <div class="cal-weekhead">
+    <div class="rail-weekhead">
       <span>一</span><span>二</span><span>三</span><span>四</span>
       <span>五</span><span>六</span><span>日</span>
     </div>
-    <div id="cal-grid" class="cal-grid"></div>
+    <div id="rail-grid" class="rail-grid"></div>
 
     <div class="day-head">
       <span id="day-label"></span>
@@ -51,49 +89,17 @@
     </div>
   </aside>
 
-  <main class="feed-pane">
-    <header class="topbar">
-      <h1 id="board-title">全部</h1>
-      <div class="topbar-right">
-        <label class="switch">
-          <input type="checkbox" id="only-unread" />
-          <span>只看未读</span>
-        </label>
-        <span id="count" class="count"></span>
-      </div>
-    </header>
-    <section id="items" class="items"></section>
-  </main>
-
   <dialog id="event-dlg">
     <form method="dialog" id="event-form">
       <h2 id="dlg-title">编辑事件</h2>
-      <label class="field">
-        <span>题目</span>
-        <input id="f-title" required placeholder="输入事件标题…" />
-      </label>
-      <label class="field">
-        <span>日期</span>
-        <input id="f-date" type="date" required />
-      </label>
+      <label class="field"><span>题目</span><input id="f-title" required placeholder="输入事件标题…" /></label>
+      <label class="field"><span>日期</span><input id="f-date" type="date" required /></label>
       <div class="field-row">
-        <label class="field">
-          <span>从</span>
-          <input id="f-start" type="time" />
-        </label>
-        <label class="field">
-          <span>至</span>
-          <input id="f-end" type="time" />
-        </label>
+        <label class="field"><span>从</span><input id="f-start" type="time" /></label>
+        <label class="field"><span>至</span><input id="f-end" type="time" /></label>
       </div>
-      <label class="field">
-        <span>位置</span>
-        <input id="f-location" placeholder="输入事件位置…" />
-      </label>
-      <label class="field">
-        <span>备注</span>
-        <textarea id="f-note" rows="2" placeholder="可选"></textarea>
-      </label>
+      <label class="field"><span>位置</span><input id="f-location" placeholder="输入事件位置…" /></label>
+      <label class="field"><span>备注</span><textarea id="f-note" rows="2" placeholder="可选"></textarea></label>
       <div class="dlg-actions">
         <button type="button" id="f-delete" class="danger" hidden>删除</button>
         <span class="spacer"></span>
@@ -105,10 +111,7 @@
 
   <dialog id="feeds-dlg">
     <h2>RSS / 公众号订阅</h2>
-    <p class="hint">
-      公众号没有官方接口，通常先用
-      <b>WeWe RSS</b> 把它转成 RSS，再把地址贴到这里。
-    </p>
+    <p class="hint">公众号没有官方接口，通常先用 <b>WeWe RSS</b> 转成 RSS，再把地址贴到这里。</p>
     <div id="feed-list" class="feed-list"></div>
     <div class="feed-add">
       <input id="feed-name" placeholder="名称，如「某公众号」" />

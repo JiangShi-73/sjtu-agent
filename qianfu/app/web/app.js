@@ -3,6 +3,7 @@ const API = "/api/v1";
 const state = {
   board: null,
   onlyUnread: false,
+  view: "feed",
   month: new Date(),
   selected: "",
   events: [],
@@ -23,11 +24,7 @@ async function api(path, options) {
 const pad = (n) => String(n).padStart(2, "0");
 const ymd = (d) => d.getFullYear() + "-" + pad(d.getMonth() + 1) + "-" + pad(d.getDate());
 const todayStr = () => ymd(new Date());
-
-function fmt(iso) {
-  if (!iso) return "";
-  return String(iso).replace("T", " ").slice(5, 16);
-}
+const fmt = (iso) => (iso ? String(iso).replace("T", " ").slice(5, 16) : "");
 
 function escapeHtml(s) {
   return String(s).replace(/[&<>"']/g, (c) =>
@@ -55,7 +52,6 @@ async function loadBoards() {
     el.onclick = () => { state.board = b.key; loadBoards(); loadItems(); };
     nav.appendChild(el);
   }
-
   const cur = data.find((b) => b.key === state.board);
   $("#board-title").textContent = cur ? cur.name : "全部";
 }
@@ -114,7 +110,8 @@ async function loadCalendar() {
   const data = await api("/events?start=" + start + "&end=" + end);
   state.events = data.events || [];
   state.derived = data.derived || [];
-  renderCalendar();
+  renderRail();
+  if (state.view === "calendar") renderBig();
   renderDayList();
 }
 
@@ -124,18 +121,22 @@ function dotsFor(ds) {
   return { blue, gray };
 }
 
-function renderCalendar() {
+function monthGrid() {
   const y = state.month.getFullYear();
   const m = state.month.getMonth();
-  $("#cal-label").textContent = y + " 年 " + (m + 1) + " 月";
-
   const first = new Date(y, m, 1);
   const offset = (first.getDay() + 6) % 7;
   const daysInMonth = new Date(y, m + 1, 0).getDate();
   const rows = Math.ceil((offset + daysInMonth) / 7);
   const gridStart = new Date(y, m, 1 - offset);
+  return { y, m, rows, gridStart, daysInMonth };
+}
 
-  const grid = $("#cal-grid");
+function renderRail() {
+  const { y, m, rows, gridStart } = monthGrid();
+  $("#rail-label").textContent = y + " 年 " + (m + 1) + " 月";
+
+  const grid = $("#rail-grid");
   grid.innerHTML = "";
   const t = todayStr();
 
@@ -145,13 +146,13 @@ function renderCalendar() {
     const { blue, gray } = dotsFor(ds);
 
     const cell = document.createElement("div");
-    cell.className = "cal-cell"
+    cell.className = "rail-cell"
       + (d.getMonth() === m ? "" : " dim")
       + (ds === t ? " today" : "")
       + (ds === state.selected ? " sel" : "");
 
     const day = document.createElement("div");
-    day.className = "cal-day";
+    day.className = "rail-day";
     day.textContent = d.getDate();
     cell.appendChild(day);
 
@@ -171,12 +172,66 @@ function renderCalendar() {
       cell.appendChild(dots);
     }
 
-    cell.onclick = () => {
-      state.selected = ds;
-      if (d.getMonth() !== m) state.month = new Date(d.getFullYear(), d.getMonth(), 1);
-      renderCalendar();
-      renderDayList();
-    };
+    cell.onclick = () => selectDay(ds, d, m);
+    grid.appendChild(cell);
+  }
+}
+
+function selectDay(ds, d, currentMonth) {
+  state.selected = ds;
+  if (d && currentMonth !== undefined && d.getMonth() !== currentMonth) {
+    state.month = new Date(d.getFullYear(), d.getMonth(), 1);
+  }
+  renderRail();
+  if (state.view === "calendar") renderBig();
+  renderDayList();
+}
+
+function renderBig() {
+  const { y, m, rows, gridStart } = monthGrid();
+  $("#cal-label").textContent = y + " 年 " + (m + 1) + " 月";
+
+  const grid = $("#big-grid");
+  grid.innerHTML = "";
+  const t = todayStr();
+
+  for (let i = 0; i < rows * 7; i++) {
+    const d = new Date(gridStart.getFullYear(), gridStart.getMonth(), gridStart.getDate() + i);
+    const ds = ymd(d);
+
+    const cell = document.createElement("div");
+    cell.className = "big-cell"
+      + (d.getMonth() === m ? "" : " dim")
+      + (ds === t ? " today" : "")
+      + (ds === state.selected ? " sel" : "");
+
+    const day = document.createElement("div");
+    day.className = "big-day";
+    day.textContent = d.getDate();
+    cell.appendChild(day);
+
+    const list = document.createElement("div");
+    list.className = "big-events";
+
+    for (const ev of state.events.filter((e) => e.event_date === ds)) {
+      const chip = document.createElement("div");
+      chip.className = "chip manual";
+      chip.textContent = (ev.start_time ? ev.start_time + " " : "") + ev.title;
+      chip.title = [ev.start_time, ev.end_time, ev.location].filter(Boolean).join(" ");
+      chip.onclick = (e) => { e.stopPropagation(); openDialog(ev); };
+      list.appendChild(chip);
+    }
+
+    for (const it of state.derived.filter((x) => String(x.deadline).slice(0, 10) === ds)) {
+      const chip = document.createElement("div");
+      chip.className = "chip derived";
+      chip.textContent = String(it.deadline).slice(11, 16) + " 截止 · " + it.title;
+      chip.onclick = (e) => { e.stopPropagation(); if (it.url) window.open(it.url, "_blank"); };
+      list.appendChild(chip);
+    }
+
+    cell.appendChild(list);
+    cell.onclick = () => selectDay(ds, d, m);
     grid.appendChild(cell);
   }
 }
@@ -201,8 +256,7 @@ function renderDayList() {
   for (const e of mine) {
     const el = document.createElement("div");
     el.className = "day-item";
-    el.innerHTML =
-      '<div class="t">' + escapeHtml(e.title) + "</div>" +
+    el.innerHTML = '<div class="t">' + escapeHtml(e.title) + "</div>" +
       '<div class="m">' +
         (e.start_time ? e.start_time + (e.end_time ? "–" + e.end_time : "") : "全天") +
         (e.location ? " · " + escapeHtml(e.location) : "") +
@@ -214,12 +268,22 @@ function renderDayList() {
   for (const x of due) {
     const el = document.createElement("div");
     el.className = "day-item derived";
-    el.innerHTML =
-      '<div class="t">' + escapeHtml(x.title) + "</div>" +
+    el.innerHTML = '<div class="t">' + escapeHtml(x.title) + "</div>" +
       '<div class="m">' + String(x.deadline).slice(11, 16) + " 截止 · 来自信息流</div>";
     el.onclick = () => { if (x.url) window.open(x.url, "_blank"); };
     box.appendChild(el);
   }
+}
+
+/* ---------------- 视图切换 ---------------- */
+
+function switchView(view) {
+  state.view = view;
+  const isCal = view === "calendar";
+  $("#feed-view").hidden = isCal;
+  $("#calendar-view").hidden = !isCal;
+  $("#rail").hidden = isCal;
+  if (isCal) renderBig();
 }
 
 /* ---------------- 事件对话框 ---------------- */
@@ -284,7 +348,6 @@ async function sendChat() {
   if (!text) return;
   input.value = "";
   logChat(text, true);
-
   try {
     const r = await api("/chat", { method: "POST", body: JSON.stringify({ text }) });
     logChat(r.reply, false);
@@ -298,7 +361,7 @@ async function sendChat() {
   }
 }
 
-/* ---------------- 订阅管理 ---------------- */
+/* ---------------- 订阅 ---------------- */
 
 async function openFeeds() {
   await renderFeeds();
@@ -318,12 +381,8 @@ async function renderFeeds() {
   for (const f of feeds) {
     const row = document.createElement("div");
     row.className = "feed-row";
-    row.innerHTML =
-      '<div class="info">' +
-        '<div class="name">' + escapeHtml(f.name || f.url) + "</div>" +
-        '<div class="url">' + escapeHtml(f.url) + "</div>" +
-      "</div>";
-
+    row.innerHTML = '<div class="info"><div class="name">' + escapeHtml(f.name || f.url) +
+      '</div><div class="url">' + escapeHtml(f.url) + "</div></div>";
     const del = document.createElement("button");
     del.className = "mini danger";
     del.textContent = "删除";
@@ -351,8 +410,6 @@ async function addFeed() {
   $("#feed-name").value = "";
   $("#feed-url").value = "";
   await renderFeeds();
-
-  // 立刻抓一次，让用户看到效果
   await api("/sources/rss/fetch", { method: "POST" });
   loadBoards();
   loadItems();
@@ -410,8 +467,14 @@ $("#f-delete").onclick = deleteDialog;
 $("#day-add").onclick = () => openDialog(null, state.selected);
 $("#chat-send").onclick = sendChat;
 $("#chat-input").addEventListener("keydown", (e) => { if (e.key === "Enter") sendChat(); });
-$("#cal-prev").onclick = () => { state.month = new Date(state.month.getFullYear(), state.month.getMonth() - 1, 1); loadCalendar(); };
-$("#cal-next").onclick = () => { state.month = new Date(state.month.getFullYear(), state.month.getMonth() + 1, 1); loadCalendar(); };
+
+$("#rail-expand").onclick = () => switchView("calendar");
+$("#cal-close").onclick = () => switchView("feed");
+
+$("#rail-prev").onclick = () => { state.month = new Date(state.month.getFullYear(), state.month.getMonth() - 1, 1); loadCalendar(); };
+$("#rail-next").onclick = () => { state.month = new Date(state.month.getFullYear(), state.month.getMonth() + 1, 1); loadCalendar(); };
+$("#cal-prev").onclick = $("#rail-prev").onclick;
+$("#cal-next").onclick = $("#rail-next").onclick;
 $("#cal-today").onclick = () => { state.month = new Date(); state.selected = todayStr(); loadCalendar(); };
 
 loadBoards();
