@@ -13,10 +13,11 @@ router = APIRouter(tags=["canvas"])
 
 
 @router.get("/canvas/homework")
-def canvas_homework(include_submitted: bool = False):
+def canvas_homework(include_submitted: bool = False, include_overdue: bool = False):
     """按课程分组返回 Canvas 作业。
 
-    默认只给未提交、未过期的，右边栏就是待办清单。
+    默认只给**未提交且未过期**的，右边栏就是干净的待办清单：
+    交了的不出现，过期的也不出现。
     """
     groups: dict[str, list[dict]] = {}
 
@@ -35,6 +36,9 @@ def canvas_homework(include_submitted: bool = False):
 
         deadline = row.get("deadline") or ""
         overdue = bool(deadline) and deadline[:10] < date.today().isoformat()
+
+        if overdue and not include_overdue:
+            continue
 
         course = extra.get("course_name") or "未分组"
         groups.setdefault(course, []).append(
