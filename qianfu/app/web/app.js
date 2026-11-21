@@ -297,6 +297,56 @@ function renderDayList() {
   }
 }
 
+/* ---------------- Canvas 作业（右边栏） ---------------- */
+
+async function loadHomework() {
+  const { groups, total } = await api("/canvas/homework");
+  const box = $("#rail-hw");
+  box.innerHTML = "";
+
+  if (!groups.length) {
+    box.innerHTML = '<div class="hw-empty">没有待交作业</div>';
+    return;
+  }
+
+  for (const g of groups) {
+    const wrap = document.createElement("div");
+    wrap.className = "hw-group";
+
+    const head = document.createElement("div");
+    head.className = "hw-course";
+    head.innerHTML = "<span>" + escapeHtml(g.course) + "</span><span>" + g.count + "</span>";
+    wrap.appendChild(head);
+
+    for (const hw of g.items) {
+      const el = document.createElement("div");
+      el.className = "hw-item" + (hw.read ? " read" : "") + (hw.overdue ? " overdue" : "");
+      const dl = hw.deadline ? String(hw.deadline).slice(5, 16) : "";
+      el.innerHTML =
+        '<div class="t">' + escapeHtml(hw.title) + "</div>" +
+        (dl ? '<div class="d">' + (hw.overdue ? "已过期 " : "截止 ") + dl + "</div>" : "");
+      el.onclick = async () => {
+        if (!hw.read) {
+          await api("/items/" + hw.id + "/read", { method: "POST" });
+          loadHomework();
+          loadBoards();
+        }
+        if (hw.url) window.open(hw.url, "_blank");
+      };
+      wrap.appendChild(el);
+    }
+    box.appendChild(wrap);
+  }
+}
+
+function switchRail(tab) {
+  const isHw = tab === "hw";
+  $("#tab-hw").classList.toggle("active", isHw);
+  $("#tab-day").classList.toggle("active", !isHw);
+  $("#rail-hw").hidden = !isHw;
+  $("#rail-day").hidden = isHw;
+}
+
 /* ---------------- 视图切换 ---------------- */
 
 function switchView(view) {
@@ -513,6 +563,7 @@ async function fetchAll() {
     loadBoards();
     loadItems();
     loadCalendar();
+    loadHomework();
   } catch (e) {
     $("#status").textContent = "失败：" + e.message;
   } finally {
@@ -532,7 +583,7 @@ function connectEvents() {
   const ws = new WebSocket("ws://" + location.host + "/ws");
   ws.onmessage = (ev) => {
     const msg = JSON.parse(ev.data);
-    if (msg.type === "items.added") { loadBoards(); loadItems(); loadCalendar(); }
+    if (msg.type === "items.added") { loadBoards(); loadItems(); loadCalendar(); loadHomework(); }
     if (msg.type === "source.error") $("#status").textContent = msg.key + " 出错：" + msg.error;
   };
   ws.onclose = () => setTimeout(connectEvents, 3000);
@@ -581,6 +632,8 @@ $("#day-add").onclick = () => openDialog(null, state.selected);
 $("#chat-send").onclick = sendChat;
 $("#chat-input").addEventListener("keydown", (e) => { if (e.key === "Enter") sendChat(); });
 
+$("#tab-hw").onclick = () => switchRail("hw");
+$("#tab-day").onclick = () => switchRail("day");
 $("#rail-expand").onclick = () => switchView("calendar");
 $("#cal-close").onclick = () => switchView("feed");
 
@@ -593,4 +646,5 @@ $("#cal-today").onclick = () => { state.month = new Date(); state.selected = tod
 loadBoards();
 loadItems();
 loadCalendar();
+loadHomework();
 connectEvents();
