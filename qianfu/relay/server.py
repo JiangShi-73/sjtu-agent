@@ -70,24 +70,41 @@ def _login_worker(sid: str) -> None:
             page.goto("https://weread.qq.com/", wait_until="domcontentloaded", timeout=45000)
             page.wait_for_timeout(3500)
 
-            try:
-                page.click("text=登录", timeout=8000)
-            except Exception:
-                pass
-
-            # 二维码是 base64 图片
-            qr = ""
-            for _ in range(20):
-                page.wait_for_timeout(700)
-                qr = page.evaluate(
+            def grab_qr() -> str:
+                return page.evaluate(
                     """() => {
-                        const imgs = Array.from(document.querySelectorAll('img'));
-                        const hit = imgs.find(i => i.src && i.src.startsWith('data:image'));
-                        return hit ? hit.src : '';
+                        const pick = (sel) => {
+                            const el = document.querySelector(sel);
+                            return el && el.src && el.src.startsWith('data:image') ? el.src : '';
+                        };
+                        return pick('img[src^="data:image"]')
+                            || pick('.qrcode img')
+                            || pick('[class*="qr"] img');
                     }"""
                 )
+
+            # 点登录可能因为页面还没渲染完而落空，重试几轮
+            qr = ""
+            for attempt in range(3):
+                try:
+                    page.click("text=登录", timeout=8000)
+                except Exception:
+                    pass
+
+                for _ in range(12):
+                    page.wait_for_timeout(700)
+                    qr = grab_qr()
+                    if qr:
+                        break
                 if qr:
                     break
+
+                # 还没出码：刷新重来
+                try:
+                    page.reload(wait_until="domcontentloaded", timeout=30000)
+                    page.wait_for_timeout(3000)
+                except Exception:
+                    pass
 
             if not qr:
                 entry["state"] = "error"
@@ -128,6 +145,15 @@ _tokens: dict[str, dict] = {}
 
 @app.get("/api/v2/login/platform")
 def create_login():
+    # 复用还活着的会话：前端点两次不该开两个浏览器
+    now = time.time()
+    for sid, old in _sessions.items():
+        # 前端给的扫码倒计时是 60 秒，超过就别复用旧码了
+        if old.get("state") == "waiting" and now - old.get("created", 0) < 50:
+            scan = _decode_qr(old.get("qr") or "")
+            if scan:
+                return {"uuid": sid, "scanUrl": scan}
+
     sid = uuidlib.uuid4().hex
     _sessions[sid] = {"state": "starting", "qr": "", "created": time.time()}
     threading.Thread(target=_login_worker, args=(sid,), daemon=True).start()
