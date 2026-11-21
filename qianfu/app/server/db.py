@@ -106,6 +106,11 @@ def init() -> None:
     conn = connect()
     try:
         conn.executescript(SCHEMA)
+        # 给 QQ 机器人用：记下已经推送过的条目，避免重复发
+        cols = {r["name"] for r in conn.execute("PRAGMA table_info(items)")}
+        if "pushed_at" not in cols:
+            conn.execute("ALTER TABLE items ADD COLUMN pushed_at TEXT")
+
         for key, name, sort in DEFAULT_BOARDS:
             # 名称跟着代码走：改了 DEFAULT_BOARDS 下次启动就生效
             conn.execute(
@@ -191,6 +196,40 @@ def mark_read(item_id: int) -> bool:
         )
         conn.commit()
         return cur.rowcount > 0
+    finally:
+        conn.close()
+
+
+def bot_digest(since: str | None, limit: int, only_unpushed: bool) -> list[dict]:
+    """给机器人用的增量列表。"""
+    conn = connect()
+    try:
+        sql = "SELECT * FROM items WHERE 1=1"
+        args: list = []
+        if since:
+            sql += " AND created_at > ?"
+            args.append(since)
+        if only_unpushed:
+            sql += " AND pushed_at IS NULL"
+        sql += " ORDER BY created_at DESC LIMIT ?"
+        args.append(limit)
+        return [dict(r) for r in conn.execute(sql, args).fetchall()]
+    finally:
+        conn.close()
+
+
+def mark_pushed(ids: list[int]) -> int:
+    if not ids:
+        return 0
+    conn = connect()
+    try:
+        marks = ",".join("?" * len(ids))
+        cur = conn.execute(
+            f"UPDATE items SET pushed_at=? WHERE id IN ({marks})",
+            [datetime.now().isoformat(timespec="seconds"), *ids],
+        )
+        conn.commit()
+        return cur.rowcount
     finally:
         conn.close()
 

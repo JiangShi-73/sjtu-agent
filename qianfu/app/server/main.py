@@ -22,6 +22,7 @@ from fastapi.staticfiles import StaticFiles
 from . import db
 from .events import bus
 from .routers import (
+    bot_router,
     canvas_router,
     courses_router,
     events_router,
@@ -74,6 +75,7 @@ app.include_router(settings_router, prefix="/api/v1")
 app.include_router(events_router, prefix="/api/v1")
 app.include_router(courses_router, prefix="/api/v1")
 app.include_router(canvas_router, prefix="/api/v1")
+app.include_router(bot_router, prefix="/api/v1")
 
 
 @app.get("/", include_in_schema=False)

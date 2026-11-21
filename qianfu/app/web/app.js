@@ -97,8 +97,15 @@ async function loadItems() {
       "</div>" +
       (it.summary ? '<div class="item-summary">' + escapeHtml(it.summary) + "</div>" : "") +
       '<div class="item-foot">' +
-        "<span>" + fmt(it.published || it.created_at) + "</span>" +
-        (it.deadline ? '<span class="deadline">截止 ' + fmt(it.deadline) + "</span>" : "") +
+        (it.source === "second_classroom"
+          ? '<span>活动 ' + fmt(x.start || it.published) +
+              (x.end ? "–" + String(x.end).slice(11, 16) : "") + "</span>" +
+            '<span class="deadline">报名截止 ' + fmt(x.signup_end || it.deadline) + "</span>" +
+            (x.signed_up != null
+              ? "<span>已报名 " + x.signed_up + (x.capacity ? "/" + x.capacity : "") + "</span>"
+              : "")
+          : "<span>" + fmt(it.published || it.created_at) + "</span>" +
+            (it.deadline ? '<span class="deadline">截止 ' + fmt(it.deadline) + "</span>" : "")) +
       "</div>";
 
     el.querySelectorAll(".item-actions button").forEach((btn) => {
@@ -465,6 +472,9 @@ function openActivity(it) {
     ["活动时间", [x.start, x.end].filter(Boolean).join("  →  ")],
     ["报名时间", [x.signup_start, x.signup_end].filter(Boolean).join("  →  ")],
     ["报名方式", x.signup],
+    ["已报名", x.signed_up != null
+      ? x.signed_up + (x.capacity ? " / " + x.capacity + " 人" : " 人")
+      : ""],
     ["地点", x.place],
     ["主办", x.sponsor],
     ["人数", x.person_num],
@@ -485,14 +495,18 @@ function openActivity(it) {
   $("#act-intro").textContent = x.introduction || it.summary || "";
   $("#act-intro").hidden = !(x.introduction || it.summary);
 
-  $("#act-schedule").onclick = async () => {
-    const r = await api("/items/" + it.id + "/schedule", { method: "POST" });
+  const addToCalendar = async (kind) => {
+    const r = await api("/items/" + it.id + "/schedule?kind=" + kind, { method: "POST" });
     if (r.ok) {
-      $("#status").textContent = "已加入 " + r.event.event_date + " 的日程";
+      $("#status").textContent = (kind === "signup" ? "报名截止" : "活动") +
+        "已加入 " + r.event.event_date + " 的日程";
       loadCalendar();
       $("#act-dlg").close();
     }
   };
+  $("#act-schedule-signup").onclick = () => addToCalendar("signup");
+  $("#act-schedule-start").onclick = () => addToCalendar("start");
+  $("#act-schedule-signup").disabled = !x.signup_end;
   const hasDetail = (it.url || "").includes("/activity/detail/");
   $("#act-open").textContent = hasDetail ? "打开活动详情" : "打开活动平台";
   $("#act-open").onclick = () => window.open(it.url || "https://activity.sjtu.edu.cn/dekt", "_blank");

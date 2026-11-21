@@ -44,26 +44,52 @@ def delete_item(item_id: int):
 
 
 @router.post("/items/{item_id}/schedule")
-def schedule_item(item_id: int):
-    """把一条信息一键加成日程（第二课堂等活动用）。"""
+def schedule_item(item_id: int, kind: str = "start"):
+    """把一条信息加成日程。
+
+    kind=start  —— 活动开始时间（默认）
+    kind=signup —— 报名截止时间
+    """
     items = [i for i in db.list_items(None, False, 1000) if i["id"] == item_id]
     if not items:
         raise HTTPException(status_code=404, detail="条目不存在")
     item = items[0]
+
     extra = item.get("extra") or {}
-    event_date = (item.get("published") or "")[:10] or ""
-    if not event_date:
-        raise HTTPException(status_code=400, detail="这条信息没有日期，无法排期")
+    if isinstance(extra, str):
+        import json as _json
+
+        try:
+            extra = _json.loads(extra)
+        except ValueError:
+            extra = {}
+
+    if kind == "signup":
+        raw = extra.get("signup_end") or ""
+        when = raw.replace("T", " ")[:16]
+        title = "报名截止 · " + item["title"]
+    else:
+        raw = extra.get("start") or item.get("published") or ""
+        when = raw.replace("T", " ")[:16]
+        title = item["title"]
+
+    if not when or len(when) < 10:
+        raise HTTPException(status_code=400, detail=f"这条信息没有{'报名截止' if kind == 'signup' else '开始'}时间")
+
+    end_time = ""
+    if kind == "start":
+        end_raw = (extra.get("end") or "").replace("T", " ")
+        end_time = end_raw[11:16] if len(end_raw) >= 16 else ""
 
     event = db.create_event(
         {
-            "title": item["title"],
-            "event_date": event_date,
-            "start_time": (item.get("published") or "")[11:16],
-            "end_time": "",
+            "title": title,
+            "event_date": when[:10],
+            "start_time": when[11:16],
+            "end_time": end_time,
             "location": extra.get("place") or extra.get("location") or "",
             "note": item.get("summary") or "",
             "source": "item",
         }
     )
-    return {"ok": True, "event": event}
+    return {"ok": True, "kind": kind, "event": event}

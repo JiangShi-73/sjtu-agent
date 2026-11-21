@@ -299,6 +299,29 @@ docker run -d --name wewe-rss \
 - 不要一次加几十个公众号，分批加。
 - 不要用主号——万一被限制，影响的是日常使用的账号。
 
+## QQ 机器人接口
+
+机器人只需要「拉增量 → 推送 → 确认」，不用懂业务。全在 `/api/v1/bot` 下：
+
+| 方法 | 路径 | 用途 |
+|---|---|---|
+| GET | `/bot/ping` | 探活 |
+| GET | `/bot/digest?limit=20&only_unpushed=true` | 还没推送过的条目 |
+| POST | `/bot/ack` `{"ids":[1,2]}` | 标记已推送，下次不再给 |
+| GET | `/bot/deadlines?days=7` | 未来 N 天的截止事项 |
+| GET | `/bot/activities?days=7&with_labor=true` | 未来 N 天的第二课堂活动 |
+
+典型循环：
+
+```python
+r = httpx.get("http://127.0.0.1:8722/api/v1/bot/digest?limit=20").json()
+for it in r["items"]:
+    send_qq(f"{it['title']}\n{it['url']}")
+httpx.post("http://127.0.0.1:8722/api/v1/bot/ack", json={"ids": [i["id"] for i in r["items"]]})
+```
+
+已推送状态记在 `items.pushed_at`，和界面的「已读」互不干扰。
+
 ## 接口一览
 
 | 方法 | 路径 | 说明 |

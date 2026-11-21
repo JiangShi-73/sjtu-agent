@@ -122,6 +122,8 @@ class SecondClassroomSource:
                     if found:
                         item.url = found["url"]
                         item.extra.update(found.get("props") or {})
+                        item.extra["signed_up"] = found.get("signed_up_num")
+                        item.extra["capacity"] = found.get("person_num")
                         hit += 1
                 if hit:
                     report.error = (report.error + " " if report.error else "") + f"详情页 {hit}/{len(report.items)}"
