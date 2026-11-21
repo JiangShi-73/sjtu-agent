@@ -20,9 +20,10 @@ from __future__ import annotations
 import json
 from datetime import date, datetime, timedelta
 
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException
+from fastapi.responses import Response
 
-from .. import db
+from .. import db, shots
 
 router = APIRouter(tags=["bot"])
 
@@ -75,8 +76,7 @@ def deadlines(days: int = 7):
     return {"days": days, "items": db.items_with_deadline(start, end)}
 
 
-@router.get("/bot/activities")
-def activities(days: int = 7, with_labor: bool = False):
+def _activity_rows(days: int, with_labor: bool) -> list[dict]:
     """未来 N 天的第二课堂活动。"""
     today = date.today()
     end = (today + timedelta(days=max(1, min(days, 90)))).isoformat()
@@ -111,4 +111,92 @@ def activities(days: int = 7, with_labor: bool = False):
         )
 
     out.sort(key=lambda x: x["start"] or "")
-    return {"days": days, "count": len(out), "items": out}
+    return out
+
+
+def _text_list(rows: list[dict]) -> str:
+    """给 QQ 直接发的一段话。带序号，用户回「3」就能选中第 3 个。"""
+    lines = [f"第二课堂活动（共 {len(rows)} 个）"]
+    for i, it in enumerate(rows, 1):
+        when = (it.get("start") or "")[:16].replace("T", " ")
+        tail = []
+        if it.get("signup_end"):
+            tail.append("报名截止 " + it["signup_end"][:16].replace("T", " "))
+        if it.get("labor_counted"):
+            tail.append(f"劳动学时 {it.get('labor_hours') or 0:g}")
+        if it.get("new_era"):
+            tail.append("新时代讲座")
+        lines.append(f"{i}. {it['title']}")
+        lines.append(f"   {when}" + ("  ·  " + " · ".join(tail) if tail else ""))
+    return "\n".join(lines)
+
+
+@router.get("/bot/activities")
+def activities(days: int = 7, with_labor: bool = False, format: str = "json"):
+    """未来 N 天的第二课堂活动。
+
+    format=text 直接给一段可以发到 QQ 的文本（带序号）。
+    """
+    rows = _activity_rows(days, with_labor)
+    if format == "text":
+        return {"days": days, "count": len(rows), "text": _text_list(rows)}
+    return {"days": days, "count": len(rows), "items": rows}
+
+
+def _find_activity(item_id: int) -> dict:
+    for row in db.list_items("event", False, 300):
+        if row["id"] == item_id:
+            item = _plain(row)
+            if item["source"] != "second_classroom":
+                raise HTTPException(status_code=400, detail="这条不是第二课堂活动")
+            return item
+    raise HTTPException(status_code=404, detail="活动不存在")
+
+
+@router.get("/bot/activity/{item_id}")
+def activity_detail(item_id: int):
+    """单个活动的详情（机器人回文字用）。"""
+    item = _find_activity(item_id)
+    x = item["extra"]
+    return {
+        "id": item["id"],
+        "title": item["title"],
+        "url": item["url"],
+        "type": item["category"],
+        "start": x.get("start"),
+        "end": x.get("end"),
+        "signup_start": x.get("signup_start"),
+        "signup_end": x.get("signup_end"),
+        "place": x.get("place"),
+        "sponsor": x.get("sponsor"),
+        "signup_method": x.get("signup"),
+        "signed_up": x.get("signed_up"),
+        "capacity": x.get("capacity"),
+        "labor_counted": bool(x.get("labor_counted")),
+        "labor_hours": x.get("labor_hours"),
+        "new_era": bool(x.get("new_era")),
+        "introduction": x.get("introduction"),
+        "presenter": x.get("presenter"),
+        "shot": f"/api/v1/bot/activity/{item_id}/shot.png",
+    }
+
+
+@router.get("/bot/activity/{item_id}/shot.png")
+def activity_shot(item_id: int, force: bool = False):
+    """把活动详情页截成 PNG，机器人直接发图。"""
+    item = _find_activity(item_id)
+    if not item["url"]:
+        raise HTTPException(status_code=400, detail="这条活动没有详情页地址")
+
+    try:
+        png = shots.capture(item["url"], force=force)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except Exception as exc:                       # 浏览器超时等
+        raise HTTPException(status_code=502, detail=f"截图失败：{exc}") from exc
+
+    return Response(
+        content=png,
+        media_type="image/png",
+        headers={"Cache-Control": f"max-age={shots.TTL_SECONDS}"},
+    )

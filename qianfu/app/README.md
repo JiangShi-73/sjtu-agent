@@ -310,6 +310,24 @@ docker run -d --name wewe-rss \
 | POST | `/bot/ack` `{"ids":[1,2]}` | 标记已推送，下次不再给 |
 | GET | `/bot/deadlines?days=7` | 未来 N 天的截止事项 |
 | GET | `/bot/activities?days=7&with_labor=true` | 未来 N 天的第二课堂活动 |
+| GET | `/bot/activities?format=text` | 同上，直接返回可发的文本（带序号） |
+| GET | `/bot/activity/{id}` | 单个活动详情 |
+| GET | `/bot/activity/{id}/shot.png` | **活动详情页截图**（PNG） |
+
+### 截图接口
+
+`/bot/activity/{id}/shot.png` 用 Playwright 打开真实详情页再截全页图
+（1000×1200 视口，2 倍清晰度），结果缓存在 `~/.xinge/shots/` 10 分钟。
+第一次约 6 秒，之后秒回。
+
+配合 `format=text` 就能做「问名单 → 报序号 → 发图」：
+
+```
+用户：现在第二课堂有什么活动
+Bot ：GET /bot/activities?days=14&format=text   →  1. … 2. … 3. …
+用户：第三个
+Bot ：GET /bot/activity/64/shot.png             →  图片
+```
 
 典型循环：
 
