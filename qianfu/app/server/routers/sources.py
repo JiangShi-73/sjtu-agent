@@ -16,6 +16,7 @@ KNOWN = {
     "second_classroom": "第二课堂活动",
     "rss": "RSS / 公众号",
     "aihaoke": "知途好课",
+    "wechat": "公众号文章",
 }
 
 

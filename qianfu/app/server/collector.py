@@ -65,7 +65,7 @@ async def fetch_one(key: str) -> dict:
 
 
 async def fetch_all(keys: list[str] | None = None) -> list[dict]:
-    keys = keys or ["canvas", "cnmooc", "pe", "second_classroom", "aihaoke", "rss"]
+    keys = keys or ["canvas", "cnmooc", "pe", "second_classroom", "aihaoke", "rss", "wechat"]
     results = []
     for key in keys:
         results.append(await fetch_one(key))

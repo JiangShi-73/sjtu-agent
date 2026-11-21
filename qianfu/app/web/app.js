@@ -640,8 +640,33 @@ function openActivity(it) {
 
 async function openFeeds() {
   await renderFeeds();
+  await renderWx();
   await renderCourses();
   $("#feeds-dlg").showModal();
+}
+
+async function renderWx() {
+  const { articles } = await api("/wechat/articles");
+  const box = $("#wx-list");
+  box.innerHTML = "";
+  if (!articles.length) {
+    box.innerHTML = '<div class="feed-empty">还没有添加文章链接。</div>';
+    return;
+  }
+  for (const url of articles) {
+    const row = document.createElement("div");
+    row.className = "feed-row";
+    row.innerHTML = '<div class="info"><div class="url">' + escapeHtml(url) + "</div></div>";
+    const del = document.createElement("button");
+    del.className = "mini danger";
+    del.textContent = "删除";
+    del.onclick = async () => {
+      await api("/wechat/articles?url=" + encodeURIComponent(url), { method: "DELETE" });
+      renderWx();
+    };
+    row.appendChild(del);
+    box.appendChild(row);
+  }
 }
 
 async function renderCourses() {
@@ -877,6 +902,17 @@ $("#btn-diag").onclick = diagnose;
 $("#btn-feeds").onclick = openFeeds;
 $("#feed-add-btn").onclick = addFeed;
 $("#course-add-btn").onclick = addCourse;
+$("#wx-add-btn").onclick = async () => {
+  const url = $("#wx-url").value.trim();
+  if (!url) return;
+  const r = await api("/wechat/articles", { method: "POST", body: JSON.stringify({ url }) });
+  if (!r.ok) { alert(r.error || "添加失败"); return; }
+  $("#wx-url").value = "";
+  await renderWx();
+  await api("/sources/wechat/fetch", { method: "POST" });
+  loadBoards();
+  loadItems();
+};
 $("#act-close").onclick = () => $("#act-dlg").close();
 $("#nav-mail").onclick = showMail;
 $("#mail-refresh").onclick = loadMailView;

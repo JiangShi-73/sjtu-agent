@@ -93,6 +93,7 @@ SOURCE_BOARD = {
     "cnmooc": "mooc",
     "rss": "custom",          # 单条订阅可以在 extra.board 里覆盖
     "aihaoke": "zhitu",
+    "wechat": "wechat",
 }
 
 

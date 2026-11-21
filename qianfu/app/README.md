@@ -303,6 +303,25 @@ POST /api/teach/instance/listMyClass  {"instanceName":"","classId":0}
 
 接口：`GET /api/v1/system/browser`
 
+## 公众号文章（按链接订阅）
+
+公众号**没有公开的文章列表接口**——`/mp/profile_ext?action=getmsg` 返回
+`{"ret":-3,"errmsg":"no session"}`，必须有微信客户端会话。
+
+所以这里按**文章链接**订阅。从一篇文章页能稳定拿到：
+
+| 字段 | 来源 |
+|---|---|
+| 公众号名 | `<a id="js_name">` |
+| 标题 | `<meta property="og:title">` |
+| 发布时间 | `var ct = <unix 时间戳>` |
+| 摘要 | `<div id="js_content">` 去标签 |
+| 账号标识 | `var biz` / `var user_name`（gh_xxx） |
+
+订阅：侧栏「订阅」→「公众号文章」→ 粘贴 `https://mp.weixin.qq.com/s/...`
+
+接口：`GET/POST/DELETE /api/v1/wechat/articles`
+
 ## 公众号 / RSS
 
 公众号**没有官方开放接口**，社区通行做法是先转成 RSS 再消费。所以这里拆成两半：
