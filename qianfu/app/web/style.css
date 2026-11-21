@@ -200,6 +200,24 @@ button.danger { color: var(--danger); border-color: #f0c9c4; }
 .hw-item.overdue .d { color: #b6bcc6; }
 .hw-empty { color: #b6bcc6; font-size: 12px; padding: 14px 2px; text-align: center; }
 
+.college-bar {
+  display: flex; flex-wrap: wrap; gap: 6px;
+  padding: 10px 16px 12px;
+  border-bottom: 1px solid var(--line);
+  background: var(--bg);
+}
+.college-chip {
+  border: 1px solid var(--line); background: var(--panel);
+  border-radius: 999px; padding: 4px 10px; font-size: 12px;
+  cursor: pointer; color: var(--muted); white-space: nowrap;
+}
+.college-chip:hover { border-color: var(--accent); color: var(--accent); }
+.college-chip.on {
+  background: var(--accent); border-color: var(--accent);
+  color: #fff; font-weight: 600;
+}
+.college-chip .n { opacity: .7; margin-left: 4px; font-size: 11px; }
+
 .college-group { margin-bottom: 18px; }
 .college-head {
   display: flex; align-items: center; justify-content: space-between;

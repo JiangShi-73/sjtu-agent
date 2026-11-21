@@ -19,8 +19,10 @@ def list_items(
     board: str | None = Query(None),
     unread: bool = Query(False),
     limit: int = Query(100, ge=1, le=500),
+    college: str | None = Query(None, description="只看某个学院（学院公告板块用）"),
 ):
-    return {"items": db.list_items(board, unread, limit)}
+    items = db.list_items(board, unread, limit, category=college)
+    return {"items": items, "college": college}
 
 
 @router.post("/items/{item_id}/read")

@@ -169,7 +169,9 @@ def upsert_items(items: list) -> int:
     return added
 
 
-def list_items(board: str | None, unread: bool, limit: int) -> list[dict]:
+def list_items(
+    board: str | None, unread: bool, limit: int, category: str | None = None
+) -> list[dict]:
     conn = connect()
     try:
         sql = "SELECT * FROM items"
@@ -179,6 +181,9 @@ def list_items(board: str | None, unread: bool, limit: int) -> list[dict]:
             args.append(board)
         if unread:
             where.append("read_at IS NULL")
+        if category:
+            where.append("category = ?")
+            args.append(category)
         if where:
             sql += " WHERE " + " AND ".join(where)
         sql += " ORDER BY COALESCE(published, created_at) DESC LIMIT ?"

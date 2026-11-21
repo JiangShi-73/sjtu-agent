@@ -2,6 +2,7 @@ const API = "/api/v1";
 
 const state = {
   board: null,
+  college: null,
   onlyUnread: false,
   view: "feed",
   month: new Date(),
@@ -41,7 +42,7 @@ async function loadBoards() {
   const all = document.createElement("button");
   all.className = "board" + (state.board === null ? " active" : "");
   all.textContent = "全部";
-  all.onclick = () => { showFeed(); state.board = null; loadBoards(); loadItems(); };
+  all.onclick = () => { showFeed(); state.board = null; state.college = null; loadBoards(); loadItems(); };
   nav.appendChild(all);
 
   for (const b of data) {
@@ -49,7 +50,7 @@ async function loadBoards() {
     el.className = "board" + (state.board === b.key ? " active" : "");
     el.innerHTML = "<span>" + escapeHtml(b.name) + "</span>" +
       (b.unread ? '<span class="badge">' + b.unread + "</span>" : "");
-    el.onclick = () => { showFeed(); state.board = b.key; loadBoards(); loadItems(); };
+    el.onclick = () => { showFeed(); state.board = b.key; state.college = null; loadBoards(); loadItems(); };
     nav.appendChild(el);
   }
   const cur = data.find((b) => b.key === state.board);
@@ -127,6 +128,7 @@ async function loadItems() {
   const params = new URLSearchParams({ limit: "200" });
   if (state.board) params.set("board", state.board);
   if (state.onlyUnread) params.set("unread", "true");
+  if (state.college) params.set("college", state.college);
 
   const { items } = await api("/items?" + params);
   const box = $("#items");
@@ -138,14 +140,51 @@ async function loadItems() {
     return;
   }
 
-  // 学院公告按学院分组，不要混在一起
+  // 学院公告：顶部一排学院，点哪个看哪个
   if (state.board === "college") {
-    renderCollegeGroups(box, items);
+    await renderCollegeBar();
+    if (state.college) {
+      for (const it of items) box.appendChild(renderItemCard(it));
+    } else {
+      renderCollegeGroups(box, items);
+    }
     return;
   }
 
+  $("#college-bar").hidden = true;
+
   for (const it of items) {
     box.appendChild(renderItemCard(it));
+  }
+}
+
+async function renderCollegeBar() {
+  const bar = $("#college-bar");
+  bar.hidden = false;
+
+  const { colleges } = await api("/colleges");
+  const list = colleges.filter((c) => c.count > 0 || c.enabled);
+
+  bar.innerHTML = "";
+
+  const all = document.createElement("button");
+  all.className = "college-chip" + (state.college ? "" : " on");
+  all.textContent = "全部";
+  all.onclick = () => {
+    state.college = null;
+    loadItems();
+  };
+  bar.appendChild(all);
+
+  for (const c of list) {
+    const chip = document.createElement("button");
+    chip.className = "college-chip" + (state.college === c.name ? " on" : "");
+    chip.innerHTML = escapeHtml(c.name) + '<span class="n">' + c.count + "</span>";
+    chip.onclick = () => {
+      state.college = state.college === c.name ? null : c.name;
+      loadItems();
+    };
+    bar.appendChild(chip);
   }
 }
 
