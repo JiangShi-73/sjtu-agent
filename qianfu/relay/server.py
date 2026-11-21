@@ -70,21 +70,20 @@ def _login_worker(sid: str) -> None:
             page.goto("https://weread.qq.com/", wait_until="domcontentloaded", timeout=45000)
             page.wait_for_timeout(3500)
 
-            def grab_qr() -> str:
+            def grab_qr() -> list:
+                """把所有 data:image 都拿回来，逐个尝试解码。
+
+                页面上可能不止一个内联图片（头像、图标…），
+                只取第一个经常拿到错的。
+                """
                 return page.evaluate(
-                    """() => {
-                        const pick = (sel) => {
-                            const el = document.querySelector(sel);
-                            return el && el.src && el.src.startsWith('data:image') ? el.src : '';
-                        };
-                        return pick('img[src^="data:image"]')
-                            || pick('.qrcode img')
-                            || pick('[class*="qr"] img');
-                    }"""
+                    """() => Array.from(document.querySelectorAll('img'))
+                        .map(i => i.src)
+                        .filter(s => s && s.startsWith('data:image'))"""
                 )
 
             # 点登录可能因为页面还没渲染完而落空，重试几轮
-            qr = ""
+            qr = []
             for attempt in range(3):
                 try:
                     page.click("text=登录", timeout=8000)
@@ -111,8 +110,11 @@ def _login_worker(sid: str) -> None:
                 entry["message"] = "没能拿到二维码"
                 return
 
-            entry["qr"] = qr
+            entry["qr"] = qr[0] if qr else ""
+            entry["candidates"] = qr
             entry["state"] = "waiting"
+            entry["page"] = page
+            entry["ctx"] = ctx
 
             # 等扫码：cookie 里出现 wr_vid 就算成功
             deadline = time.time() + 300
@@ -143,29 +145,74 @@ def _login_worker(sid: str) -> None:
 _tokens: dict[str, dict] = {}
 
 
-@app.get("/api/v2/login/platform")
-def create_login():
-    # 复用还活着的会话：前端点两次不该开两个浏览器
-    now = time.time()
-    for sid, old in _sessions.items():
-        # 前端给的扫码倒计时是 60 秒，超过就别复用旧码了
-        if old.get("state") == "waiting" and now - old.get("created", 0) < 50:
-            scan = _decode_qr(old.get("qr") or "")
-            if scan:
-                return {"uuid": sid, "scanUrl": scan}
+# 常驻一个"随时可用"的二维码会话。
+# 之前是用户点了才开浏览器，偶尔抓不到码就返回 502，
+# 前端拿不到 loginData，弹窗就闪一下就没了。
+_current: dict = {"sid": ""}
 
+
+def _spawn() -> str:
     sid = uuidlib.uuid4().hex
     _sessions[sid] = {"state": "starting", "qr": "", "created": time.time()}
     threading.Thread(target=_login_worker, args=(sid,), daemon=True).start()
+    return sid
 
-    # 等二维码出来再返回，前端只调一次
+
+def _keeper() -> None:
+    """后台线程：保证随时有一个可扫的二维码。"""
+    while True:
+        sid = _current.get("sid") or ""
+        entry = _sessions.get(sid) or {}
+        state = entry.get("state")
+        age = time.time() - entry.get("created", 0)
+
+        # 只有"坏了"或"太旧"才换新的；正在启动的别动，否则会一直重启
+        stale = (
+            not entry
+            or state == "error"
+            or state == "timeout"
+            or (state == "waiting" and age > 40)
+            or (state == "starting" and age > 30)
+        )
+        if stale:
+            _current["sid"] = _spawn()
+        time.sleep(2)
+
+
+threading.Thread(target=_keeper, args=(), daemon=True).start()
+
+
+@app.get("/api/v2/login/platform")
+def create_login(fresh: bool = False):
+    sid = _current.get("sid") or ""
+
+    if fresh or not sid:
+        sid = _current["sid"] = _spawn()
+
+    # 等二维码出来（正常 <1 秒，因为常驻线程已经预热好了）
     for _ in range(40):
+        entry = _sessions.get(sid)
+        if entry and entry["state"] != "starting":
+            break
         time.sleep(0.5)
-        if _sessions[sid]["state"] != "starting":
+
+    entry = _sessions.get(sid) or {}
+    if entry.get("state") == "waiting":
+        scan = _decode_any(entry.get("candidates") or entry.get("qr"))
+        if scan:
+            return {"uuid": sid, "scanUrl": scan}
+        raise HTTPException(status_code=502, detail="二维码解码失败")
+
+    # 预热失败：现开一个，最多等 30 秒
+    sid = _current["sid"] = _spawn()
+    for _ in range(60):
+        time.sleep(0.5)
+        entry = _sessions.get(sid) or {}
+        if entry.get("state") not in ("starting",):
             break
 
-    entry = _sessions[sid]
-    if entry["state"] == "error":
+    entry = _sessions[sid] or {}
+    if entry.get("state") == "error":
         raise HTTPException(status_code=502, detail=entry.get("message") or "登录初始化失败")
 
     # WeWe RSS 前端是 <QRCodeSVG value={scanUrl}>，它要的是二维码里的字符串，
@@ -175,6 +222,17 @@ def create_login():
         raise HTTPException(status_code=502, detail="二维码解码失败")
 
     return {"uuid": sid, "scanUrl": scan}
+
+
+def _decode_any(candidates) -> str:
+    """在候选图里找能解出 weread 链接的那张。"""
+    if isinstance(candidates, str):
+        candidates = [candidates]
+    for data_url in candidates or []:
+        text = _decode_qr(data_url)
+        if "weread" in text:
+            return text
+    return ""
 
 
 def _decode_qr(data_url: str) -> str:
@@ -198,6 +256,31 @@ def _decode_qr(data_url: str) -> str:
         return text or ""
     except Exception:
         return ""
+
+
+@app.get("/debug/{sid}")
+def debug_session(sid: str):
+    """看一眼中继里那个浏览器现在是什么状态（排查扫码用）。"""
+    entry = _sessions.get(sid) or {}
+    out = {
+        "state": entry.get("state"),
+        "message": entry.get("message"),
+        "created_ago": round(time.time() - entry.get("created", 0), 1) if entry.get("created") else None,
+    }
+    page = entry.get("page")
+    if page is not None:
+        try:
+            out["url"] = page.url
+            out["text"] = page.inner_text("body")[:400]
+        except Exception as exc:
+            out["page_error"] = str(exc)[:120]
+    ctx = entry.get("ctx")
+    if ctx is not None:
+        try:
+            out["cookies"] = [c["name"] for c in ctx.cookies() if "weread" in c["domain"]]
+        except Exception:
+            pass
+    return out
 
 
 @app.get("/api/v2/login/platform/{sid}/qr")
