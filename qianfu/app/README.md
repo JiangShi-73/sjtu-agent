@@ -37,18 +37,27 @@ app/
 └── desktop/           Electron 壳
 ```
 
-## 跑起来
+## 在新电脑上跑起来
 
-**只跑后端**（推荐先这样调）：
+### 1. Python 依赖
 
 ```bash
 cd qianfu
-export SJTU_API_KEY=xxxxx          # 第二课堂需要
+pip install -r requirements.txt
+playwright install chromium     # 浏览器抓取要用，约 150 MB
+```
+
+> 只跑微信读书中继（`relay/`）才需要额外装 `pip install -r relay/requirements.txt`。
+
+### 2. 起后端
+
+```bash
+cd qianfu
 python -m app.server
 # 浏览器打开 http://127.0.0.1:8722/static/index.html
 ```
 
-**跑桌面端**：
+### 3. 起桌面端（可选）
 
 ```bash
 cd qianfu/app/desktop
@@ -58,15 +67,41 @@ npm start
 
 Electron 会自动拉起 Python 后端，健康检查通过后再开窗口。
 
+### 4. 首次配置
+
+打开应用 → 左下角「诊断」→ 按提示登录 Canvas / 填 API Key。
+
+所有状态都在 `~/.xinge/`，删掉这个目录就是全新开始：
+
+```
+~/.xinge/
+├── config.json     配置（Canvas token、API Key、订阅列表）
+├── app.db          SQLite（条目、板块、抓取记录）
+└── shots/          活动详情截图缓存
+```
+
+### 依赖清单
+
+| 依赖 | 用途 | 不装会怎样 |
+|---|---|---|
+| `fastapi` `uvicorn` `starlette` `pydantic` | 后端 | 起不来 |
+| `httpx` | 所有 HTTP 抓取 | 抓不到东西 |
+| `playwright` | Canvas / 慕课 / JS 渲染的学院站 | 这几类源报错，其他正常 |
+| `websockets` | 前端实时刷新 | 界面不自动更新 |
+| `opencv-python-headless` `numpy` | 仅 `relay/` 解码二维码 | 中继用不了，主程序不受影响 |
+
 ## 桌面快捷方式
 
-`app/desktop/启动信鸽.vbs` 是无控制台的启动器，桌面上已创建快捷方式「信鸽 SJTU」。
+`app/desktop/启动信鸽.vbs` 是无控制台的启动器。
 
-它做三件事：
+它做四件事：
 
 1. **移除** `ELECTRON_RUN_AS_NODE`（注意是移除，不是置空——置空仍会被当成"已设置"）
-2. 指定 `XINGE_PYTHON` 为绝对路径，不依赖 PATH
-3. 启动 `electron.exe <app 目录>`，用绝对路径而不是 `.`，不依赖当前目录
+2. 找 Python：环境变量 `XINGE_PYTHON` → 常见安装路径 → PATH 里的 `python`
+3. 把找到的路径传给 `XINGE_PYTHON`
+4. 启动 `electron.exe <app 目录>`，用绝对路径而不是 `.`，不依赖当前目录
+
+> 换机器不用改脚本：找不到硬编码路径时会自动退回 PATH 里的 `python`。
 
 想重建快捷方式（换图标/换位置）：
 

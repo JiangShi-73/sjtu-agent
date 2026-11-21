@@ -1,0 +1,4 @@
+# 可选：微信读书中继（relay/）才需要
+-r requirements.txt
+opencv-python-headless>=4.8
+numpy>=1.24

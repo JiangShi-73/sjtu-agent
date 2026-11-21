@@ -10,6 +10,9 @@ qr-*.png
 qr-*.html
 xinge-*.png
 
+# Node
+node_modules/
+
 # 编辑器
 .vscode/
 .idea/

@@ -153,6 +153,98 @@ def _find_activity(item_id: int) -> dict:
     raise HTTPException(status_code=404, detail="活动不存在")
 
 
+def _board_items(board: str, limit: int, format: str, title: str) -> dict:
+    """按板块取条目，text 模式直接给机器人念。"""
+    rows = [_plain(r) for r in db.list_items(board, False, max(1, min(limit, 50)))]
+    if format == "text":
+        if not rows:
+            return {"count": 0, "text": f"{title}暂无内容"}
+        lines = [f"{title}（{len(rows)} 条）"]
+        for i, r in enumerate(rows, 1):
+            lines.append(f'{i}. {r["title"]}')
+            when = r["deadline"] or r["published"]
+            if when:
+                lines.append(f"   {str(when)[:16]}")
+        return {"count": len(rows), "text": "\n".join(lines)}
+    return {"count": len(rows), "items": rows}
+
+
+@router.get("/bot/boards")
+def bot_boards():
+    """有哪些板块、各多少条。"""
+    return {"boards": db.boards()}
+
+
+@router.get("/bot/canvas")
+def bot_canvas(limit: int = 10, format: str = "json"):
+    """Canvas 待交作业。"""
+    return _board_items("course", limit, format, "Canvas 作业")
+
+
+@router.get("/bot/cnmooc")
+def bot_cnmooc(limit: int = 10, format: str = "json"):
+    """慕课作业与测验。"""
+    return _board_items("mooc", limit, format, "慕课作业")
+
+
+@router.get("/bot/pe")
+def bot_pe(limit: int = 10, format: str = "json"):
+    """体育实验。"""
+    return _board_items("lab", limit, format, "体育实验")
+
+
+@router.get("/bot/second-classroom")
+def bot_second_classroom(limit: int = 10, format: str = "json"):
+    """第二课堂活动（列表，挑一个再用 /bot/activity/{id} 看详情）。"""
+    return _board_items("event", limit, format, "第二课堂")
+
+
+@router.get("/bot/zhitu")
+def bot_zhitu(limit: int = 10, format: str = "json"):
+    """知途好课的课程与任务。"""
+    return _board_items("zhitu", limit, format, "知途好课")
+
+
+@router.get("/bot/search")
+def bot_search(q: str, limit: int = 10, format: str = "json"):
+    """全库搜标题。"""
+    needle = q.strip().lower()
+    if not needle:
+        raise HTTPException(status_code=400, detail="搜索词不能为空")
+
+    rows = []
+    for row in db.list_items(None, False, 2000):
+        if needle in (row["title"] or "").lower():
+            rows.append(_plain(row))
+            if len(rows) >= max(1, min(limit, 50)):
+                break
+
+    if format == "text":
+        if not rows:
+            return {"count": 0, "text": f"没有找到「{q}」"}
+        lines = [f"「{q}」找到 {len(rows)} 条"]
+        for i, r in enumerate(rows, 1):
+            lines.append(f'{i}. [{r["board"]}] {r["title"]}')
+        return {"count": len(rows), "text": "\n".join(lines)}
+
+    return {"count": len(rows), "query": q, "items": rows}
+
+
+@router.post("/bot/colleges/{key}")
+def bot_toggle_college(key: str, body: dict):
+    """机器人也能开关某个学院的订阅。"""
+    from xinge.sources.college_sites import COLLEGES
+
+    if not any(c["key"] == key for c in COLLEGES):
+        raise HTTPException(status_code=404, detail="学院不存在")
+
+    m = dict(config.load().get("college_enabled") or {})
+    if "enabled" in body:
+        m[key] = bool(body["enabled"])
+    config.save({"college_enabled": m})
+    return {"ok": True, "key": key, "enabled": bool(m.get(key, True))}
+
+
 @router.get("/bot/colleges")
 def bot_colleges(format: str = "json"):
     """学院公告的学院列表（带订阅状态和条数）。"""

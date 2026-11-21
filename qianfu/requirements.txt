@@ -1,0 +1,18 @@
+# 信鸽 SJTU —— Python 依赖
+# 装：pip install -r requirements.txt
+#
+# 只有 relay/（微信读书中继）用到下面这两条，不跑中继可以不装：
+#   opencv-python-headless
+#   numpy
+
+fastapi>=0.115,<1.0
+uvicorn>=0.30,<1.0
+httpx>=0.27,<1.0
+starlette>=0.40
+pydantic>=2.0
+websockets>=12.0
+
+# 浏览器抓取（Canvas / 慕课 / 学院公告的 JS 渲染站点）
+# 装完还要下浏览器内核：
+#   playwright install chromium
+playwright>=1.40
