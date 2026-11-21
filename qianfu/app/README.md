@@ -281,6 +281,28 @@ POST /api/teach/instance/listMyClass  {"instanceName":"","classId":0}
 
 接口：`GET /api/v1/aihaoke/courses`
 
+## 学院公告
+
+35 个学院的官网（来源：<https://www.sjtu.edu.cn/yxsz/index.html>），
+统一用一套规则抓，不逐个写解析器：
+
+```
+1. 取出所有 <a>，文本长度 8~80 的当候选标题
+2. 在标题前后 400 字符里找日期
+3. 找到日期才算一条公告（导航链接没有日期，自然被过滤）
+```
+
+站点清单在 `xinge/sources/college_sites.py`，每条带一个 `mode`：
+
+| mode | 说明 | 数量 |
+|---|---|---|
+| `html` | 直接请求就有列表 | 18 |
+| `browser` | 列表由 JS 渲染，用 Playwright 打开再取 DOM | 17 |
+
+实测：html 模式 18 个站 **172 条 / 5.3 秒**。
+
+配置驱动，加学院只要在 `COLLEGES` 里加一行。
+
 ## 浏览器依赖
 
 有几处必须用真浏览器（CNMOOC 课程检测、活动详情截图、活动平台 token）。

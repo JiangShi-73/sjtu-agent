@@ -17,6 +17,7 @@ KNOWN = {
     "rss": "RSS / 公众号",
     "aihaoke": "知途好课",
     "wechat": "公众号文章",
+    "college": "学院公告",
 }
 
 
