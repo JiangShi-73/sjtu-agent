@@ -251,6 +251,17 @@ dialog h2 { margin: 0 0 14px; font-size: 16px; }
 .dlg-actions .spacer { flex: 1; }
 
 .hint { font-size: 12px; color: var(--muted); line-height: 1.6; margin: 0 0 12px; }
+
+.act-meta { display: flex; flex-direction: column; gap: 7px; margin-bottom: 14px; }
+.act-row { display: flex; gap: 10px; font-size: 13px; }
+.act-row .k { flex: 0 0 68px; color: var(--muted); font-size: 12px; padding-top: 1px; }
+.act-row .v { flex: 1; line-height: 1.5; }
+.act-row .v.hot { color: var(--danger); font-weight: 600; }
+.act-intro {
+  font-size: 13px; line-height: 1.65; color: #3c4249;
+  background: #fafbfc; border: 1px solid var(--line); border-radius: 8px;
+  padding: 10px 12px; margin: 0 0 14px; max-height: 180px; overflow-y: auto;
+}
 dialog h2.section { margin-top: 20px; padding-top: 14px; border-top: 1px solid var(--line); }
 .course-row { display: flex; align-items: center; gap: 8px; border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; }
 .course-row .name { flex: 1; min-width: 0; font-size: 13px; }

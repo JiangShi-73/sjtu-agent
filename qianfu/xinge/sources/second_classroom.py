@@ -17,6 +17,7 @@ import httpx
 from ..core import FetchReport, Item, register_source
 
 API = "https://agentsquare.sjtu.edu.cn/api/open/second-classroom"
+PORTAL = "https://dekt.sjtu.edu.cn/"      # 第二课堂平台首页
 
 
 def _fingerprint(raw: dict) -> str:
@@ -78,16 +79,26 @@ class SecondClassroomSource:
                         source=self.key,
                         uid=fp,
                         title=(raw.get("name") or "").strip(),
-                        url="",                      # displayUrl 恒为 null
+                        # displayUrl 目前恒为 null，退回平台首页
+                        url=(raw.get("displayUrl") or "").strip() or PORTAL,
                         summary=(raw.get("introduction") or "").replace("\n", " ")[:200],
                         category=raw.get("activityTypeName") or "",
                         published=_parse(raw.get("startTime")),
                         deadline=_parse(raw.get("signupEndTime")),
                         extra={
+                            "board": "event",
                             "place": raw.get("address") or "",
                             "sponsor": raw.get("sponsor") or "",
                             "status": raw.get("status") or "",
                             "signup": raw.get("signupMethod") or "",
+                            "signup_start": raw.get("signupStartTime") or "",
+                            "signup_end": raw.get("signupEndTime") or "",
+                            "start": raw.get("startTime") or "",
+                            "end": raw.get("endTime") or "",
+                            "presenter": raw.get("presenter") or "",
+                            "presenter_bio": raw.get("presenterBio") or "",
+                            "person_num": raw.get("personNum") or "",
+                            "introduction": raw.get("introduction") or "",
                         },
                     )
                 )

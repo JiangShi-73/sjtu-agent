@@ -115,7 +115,11 @@ async function loadItems() {
         loadBoards();
         loadItems();
       }
-      if (it.url) window.open(it.url, "_blank");
+      if (it.source === "second_classroom") {
+        openActivity(it);
+      } else if (it.url) {
+        window.open(it.url, "_blank");
+      }
     };
     box.appendChild(el);
   }
@@ -433,6 +437,58 @@ async function sendChat() {
   }
 }
 
+/* ---------------- 活动详情 ---------------- */
+
+function parseExtra(it) {
+  const raw = it.extra;
+  if (!raw) return {};
+  if (typeof raw === "object") return raw;
+  try { return JSON.parse(raw); } catch (e) { return {}; }
+}
+
+function openActivity(it) {
+  const x = parseExtra(it);
+
+  $("#act-title").textContent = it.title;
+
+  const rows = [
+    ["类型", it.category || x.status || ""],
+    ["活动时间", [x.start, x.end].filter(Boolean).join("  →  ")],
+    ["报名时间", [x.signup_start, x.signup_end].filter(Boolean).join("  →  ")],
+    ["报名方式", x.signup],
+    ["地点", x.place],
+    ["主办", x.sponsor],
+    ["人数", x.person_num],
+    ["主讲", [x.presenter, x.presenter_bio].filter(Boolean).join(" · ")],
+  ].filter((r) => r[1]);
+
+  const meta = $("#act-meta");
+  meta.innerHTML = "";
+  for (const [k, v] of rows) {
+    const row = document.createElement("div");
+    row.className = "act-row";
+    const hot = k === "报名时间" && it.deadline;
+    row.innerHTML = '<span class="k">' + k + "</span>" +
+      '<span class="v' + (hot ? " hot" : "") + '">' + escapeHtml(String(v)) + "</span>";
+    meta.appendChild(row);
+  }
+
+  $("#act-intro").textContent = x.introduction || it.summary || "";
+  $("#act-intro").hidden = !(x.introduction || it.summary);
+
+  $("#act-schedule").onclick = async () => {
+    const r = await api("/items/" + it.id + "/schedule", { method: "POST" });
+    if (r.ok) {
+      $("#status").textContent = "已加入 " + r.event.event_date + " 的日程";
+      loadCalendar();
+      $("#act-dlg").close();
+    }
+  };
+  $("#act-open").onclick = () => window.open(it.url || "https://dekt.sjtu.edu.cn/", "_blank");
+
+  $("#act-dlg").showModal();
+}
+
 /* ---------------- 订阅 ---------------- */
 
 async function openFeeds() {
@@ -596,6 +652,7 @@ $("#btn-diag").onclick = diagnose;
 $("#btn-feeds").onclick = openFeeds;
 $("#feed-add-btn").onclick = addFeed;
 $("#course-add-btn").onclick = addCourse;
+$("#act-close").onclick = () => $("#act-dlg").close();
 $("#course-discover").onclick = async () => {
   const btn = $("#course-discover");
   btn.disabled = true;
