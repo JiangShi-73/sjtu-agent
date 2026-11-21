@@ -1,4 +1,4 @@
-' Xinge SJTU launcher (ASCII only)
+' Xinge SJTU launcher -- ASCII only (VBScript reads this file as ANSI)
 Option Explicit
 
 Dim sh, fso, here, electron, py, env, i, cands
@@ -11,19 +11,19 @@ here = fso.GetParentFolderName(WScript.ScriptFullName)
 electron = here & "\node_modules\electron\dist\electron.exe"
 
 If Not fso.FileExists(electron) Then
-    MsgBox "Electron 没装。先在 app\desktop 里跑 npm install。", 16, "信鸽 SJTU"
+    MsgBox "Electron not found. Run 'npm install' inside app\desktop first.", 16, "Xinge SJTU"
     WScript.Quit 1
 End If
 
-' 找 Python：先看环境变量，再看 PATH，最后猜常见位置
+' Find Python: XINGE_PYTHON first, then common install paths, then PATH.
 py = env("XINGE_PYTHON")
 
 If py = "" Or Not fso.FileExists(py) Then
     py = ""
     cands = Array( _
         sh.ExpandEnvironmentStrings("%LOCALAPPDATA%\Programs\Python\Python312\python.exe"), _
-        sh.ExpandEnvironmentStrings("%LOCALAPPDATA%\Programs\Python\Python311\python.exe"), _
         sh.ExpandEnvironmentStrings("%LOCALAPPDATA%\Programs\Python\Python313\python.exe"), _
+        sh.ExpandEnvironmentStrings("%LOCALAPPDATA%\Programs\Python\Python311\python.exe"), _
         "C:\Python312\python.exe", _
         "C:\Python311\python.exe" _
     )
@@ -35,7 +35,6 @@ If py = "" Or Not fso.FileExists(py) Then
     Next
 End If
 
-' 都不在就用 PATH 里的 python
 If py = "" Then py = "python"
 
 ' Remove (not blank) this var: a blank value may still count as "set"
