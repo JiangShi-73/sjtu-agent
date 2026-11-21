@@ -151,9 +151,21 @@ API Key 不放在环境变量里（快捷方式启动没有环境变量），统
 | 人数上限 | 24/39 |
 | **详情页地址（displayUrl）** | **0/39** |
 
-接口里没有 `id`，也没有详情接口，所以**拿不到活动详情页的直链**。
-点活动卡片打开的是应用内详情弹窗（上面这些字段 + 简介），
-再点「打开第二课堂」跳 `https://dekt.sjtu.edu.cn/`。
+### 详情页直链怎么来的
+
+开放接口没有 id，但**校园活动平台**（`activity.sjtu.edu.cn`）有。
+SSO 之后拿一个 JWT（`IMPSA-Token`，有效期 24 小时，缓存在
+`~/.xinge/impsa.json`），带着它请求 `/api/v1/activity/list/home`
+就能拿到每条活动的 id。
+
+详情页地址里的 id 是 base64 编码过的：
+
+```
+19180 -> "19180"  -> IjE5MTgwIiAg
+https://activity.sjtu.edu.cn/activity/detail/IjE5MTgwIiAg?activity_path=/dekt
+```
+
+实测 38/38 全部命中。拿不到 token 时自动退回平台首页，不影响列表。
 
 ## 信息流操作
 

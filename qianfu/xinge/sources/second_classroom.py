@@ -37,9 +37,12 @@ class SecondClassroomSource:
     name = "第二课堂活动"
     auth = None                     # 用 API Key，不走 JAccount
 
-    def __init__(self, api_key: str | None = None) -> None:
+    def __init__(self, session=None, api_key: str | None = None) -> None:
         import os
 
+        from ..auth import SessionStore
+
+        self.session = session or SessionStore()
         self.api_key = api_key or os.environ.get("SJTU_API_KEY", "")
 
     def fetch(self) -> FetchReport:
@@ -105,6 +108,25 @@ class SecondClassroomSource:
         except (httpx.HTTPError, ValueError) as exc:
             report.ok = False
             report.error = str(exc)
+
+        # 补详情页地址：开放接口没有 id，得去活动平台要。
+        # 拿不到就算了，不影响列表本身。
+        if report.items:
+            try:
+                from .activity_portal import activity_index
+
+                index = activity_index(self.session)
+                hit = 0
+                for item in report.items:
+                    found = index.get(item.title)
+                    if found:
+                        item.url = found["url"]
+                        hit += 1
+                if hit:
+                    report.error = (report.error + " " if report.error else "") + f"详情页 {hit}/{len(report.items)}"
+            except Exception:
+                pass
+
         report.elapsed_ms = int((datetime.now() - started).total_seconds() * 1000)
         return report
 

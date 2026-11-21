@@ -484,7 +484,9 @@ function openActivity(it) {
       $("#act-dlg").close();
     }
   };
-  $("#act-open").onclick = () => window.open(it.url || "https://dekt.sjtu.edu.cn/", "_blank");
+  const hasDetail = (it.url || "").includes("/activity/detail/");
+  $("#act-open").textContent = hasDetail ? "打开活动详情" : "打开活动平台";
+  $("#act-open").onclick = () => window.open(it.url || "https://activity.sjtu.edu.cn/dekt", "_blank");
 
   $("#act-dlg").showModal();
 }
