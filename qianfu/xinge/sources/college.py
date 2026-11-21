@@ -31,14 +31,20 @@ UA = (
 
 DATE = re.compile(
     r"(20\d{2})[-/.年](\d{1,2})[-/.月](\d{1,2})|"
-    r"(?<!\d)(\d{1,2})-(\d{1,2})(?!\d)"
+    r"(?<!\d)(\d{1,2})[-/](\d{1,2})(?!\d)|"
+    r"(?<!\d)(\d{1,2})月(\d{1,2})日"
 )
-LINK = re.compile(r'<a[^>]*href="([^"#]+)"[^>]*>([\s\S]{2,220}?)</a>')
+LINK = re.compile(r'<a[^>]*href="([^"#]+)"[^>]*>([\s\S]{2,900}?)</a>')
 
 SKIP = (
     "首页", "更多", "登录", "English", "返回", "下一页", "上一页", "网站地图",
     "联系我们", "加入收藏", "设为首页", "版权所有", "友情链接",
 )
+
+
+# 有些站把日期拆成「日 + 年-月」两块塞进同一个 <a>：
+#   <a href="/notice/1974.html">17 2026-11 标题 查看详情</a>
+SPLIT_DATE = re.compile(r"^\s*(\d{1,2})\s+(20\d{2})[-/.](\d{1,2})\s+(.+)$", re.S)
 
 
 def _clean(raw: str) -> str:
@@ -52,7 +58,10 @@ def _parse_date(match: re.Match) -> datetime | None:
         if match.group(1):
             return datetime(int(match.group(1)), int(match.group(2)), int(match.group(3)))
         # 只有 月-日 的，补当前年份
-        month, day = int(match.group(4)), int(match.group(5))
+        if match.group(4):
+            month, day = int(match.group(4)), int(match.group(5))
+        else:
+            month, day = int(match.group(6)), int(match.group(7))
         today = datetime.now()
         guess = datetime(today.year, month, day)
         if guess > today:
@@ -79,10 +88,25 @@ def extract(html: str, page_url: str, college: dict) -> list[Item]:
         if href.startswith(("javascript:", "mailto:", "#")):
             continue
 
-        window = html[max(0, m.start() - 400): m.end() + 400]
-        date_match = DATE.search(window)
-        if not date_match:
-            continue
+        # 先看标题自己是不是「日 年-月 标题」这种结构
+        split = SPLIT_DATE.match(title)
+        if split:
+            day, year, month, rest = split.groups()
+            title = rest.replace("查看详情", "").strip()
+            if not (8 <= len(title) <= 80):
+                continue
+            try:
+                published = datetime(int(year), int(month), int(day))
+            except ValueError:
+                continue
+            window = ""
+            date_match = None
+        else:
+            window = html[max(0, m.start() - 700): m.end() + 700]
+            date_match = DATE.search(window)
+            if not date_match:
+                continue
+            published = _parse_date(date_match)
 
         url = urljoin(page_url, href)
         if url in seen:
@@ -97,7 +121,7 @@ def extract(html: str, page_url: str, college: dict) -> list[Item]:
                 url=url,
                 summary="",
                 category=college["name"],
-                published=_parse_date(date_match),
+                published=published,
                 extra={"board": "college", "college": college["name"]},
             )
         )
@@ -131,8 +155,9 @@ def _fetch_browser(url: str) -> str:
         browser = launch(p, headless=True)
         try:
             page = browser.new_page()
-            page.goto(url, wait_until="domcontentloaded", timeout=45000)
-            page.wait_for_timeout(4000)
+            # 有的站（环境学院）很慢，45 秒会超时
+            page.goto(url, wait_until="domcontentloaded", timeout=90000)
+            page.wait_for_timeout(5000)
             # 有的站要往下滚才加载
             page.evaluate("() => window.scrollTo(0, document.body.scrollHeight)")
             page.wait_for_timeout(1500)
