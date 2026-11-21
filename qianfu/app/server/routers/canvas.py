@@ -31,14 +31,12 @@ def canvas_homework(include_submitted: bool = False, include_overdue: bool = Fal
             except json.JSONDecodeError:
                 extra = {}
 
-        if not include_submitted and extra.get("submitted"):
+        # 默认走和日历同一条判断：已提交、已过期的都不出现
+        if not (include_submitted or include_overdue) and not db.is_scheduled(row):
             continue
 
         deadline = row.get("deadline") or ""
         overdue = bool(deadline) and deadline[:10] < date.today().isoformat()
-
-        if overdue and not include_overdue:
-            continue
 
         course = extra.get("course_name") or "未分组"
         groups.setdefault(course, []).append(

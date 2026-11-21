@@ -13,7 +13,7 @@ from __future__ import annotations
 import json
 import sqlite3
 import time
-from datetime import datetime
+from datetime import date, datetime
 from pathlib import Path
 
 DATA_DIR = Path.home() / ".xinge"
@@ -380,19 +380,47 @@ CALENDAR_RULES: tuple[tuple[str, str], ...] = (
 )
 
 
+def is_scheduled(row: dict) -> bool:
+    """这条信息该不该出现在日历 / 右栏待办里。
+
+    日历和右栏共用这一个判断，避免两边规则跑偏。
+    """
+    if (row.get("source"), row.get("category")) not in CALENDAR_RULES:
+        return False
+
+    extra = row.get("extra")
+    if isinstance(extra, str):
+        try:
+            extra = json.loads(extra)
+        except json.JSONDecodeError:
+            extra = {}
+    if (extra or {}).get("submitted"):
+        return False                        # 已提交的，不再出现
+
+    deadline = row.get("deadline") or ""
+    if deadline and deadline[:10] < date.today().isoformat():
+        return False                        # 过期的，也不再出现
+    return True
+
+
 def items_with_deadline(start: str, end: str) -> list[dict]:
     """把「必须进日历」的条目铺到日历上（只读，不写回 items）。"""
     conn = connect()
     try:
         rows = conn.execute(
-            """SELECT id, source, board, title, deadline, url, category FROM items
+            """SELECT id, source, board, title, deadline, url, category, extra
+               FROM items
                WHERE deadline IS NOT NULL AND deadline <> ''
                  AND date(deadline) BETWEEN ? AND ?
                ORDER BY deadline""",
             (start, end),
         ).fetchall()
-        return [
-            dict(r) for r in rows if (r["source"], r["category"]) in CALENDAR_RULES
-        ]
+        out = []
+        for r in rows:
+            item = dict(r)
+            if is_scheduled(item):
+                item.pop("extra", None)
+                out.append(item)
+        return out
     finally:
         conn.close()
