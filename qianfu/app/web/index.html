@@ -9,7 +9,14 @@
 <body>
   <aside class="sidebar">
     <div class="brand"><span class="dot"></span><span>信鸽 SJTU</span></div>
-    <nav id="boards" class="boards"></nav>
+    <nav class="boards">
+      <button id="nav-mail" class="board">
+        <span>邮箱</span>
+        <span id="mail-badge" class="badge" hidden></span>
+      </button>
+      <div class="nav-sep"></div>
+      <div id="boards" class="boards-inner"></div>
+    </nav>
     <div class="sidebar-foot">
       <button id="btn-fetch" class="primary">抓取全部</button>
       <div class="btn-row">
@@ -36,6 +43,18 @@
         </div>
       </header>
       <section id="items" class="items"></section>
+    </section>
+
+    <!-- 邮箱 -->
+    <section id="mail-view" class="view" hidden>
+      <header class="topbar">
+        <h1>邮箱</h1>
+        <div class="topbar-right">
+          <span id="mail-count" class="count"></span>
+          <button id="mail-refresh" class="mini">刷新</button>
+        </div>
+      </header>
+      <section id="mail-list" class="items"></section>
     </section>
 
     <!-- 整页日历 -->

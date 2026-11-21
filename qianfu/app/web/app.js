@@ -41,7 +41,7 @@ async function loadBoards() {
   const all = document.createElement("button");
   all.className = "board" + (state.board === null ? " active" : "");
   all.textContent = "全部";
-  all.onclick = () => { state.board = null; loadBoards(); loadItems(); };
+  all.onclick = () => { showFeed(); state.board = null; loadBoards(); loadItems(); };
   nav.appendChild(all);
 
   for (const b of data) {
@@ -49,7 +49,7 @@ async function loadBoards() {
     el.className = "board" + (state.board === b.key ? " active" : "");
     el.innerHTML = "<span>" + escapeHtml(b.name) + "</span>" +
       (b.unread ? '<span class="badge">' + b.unread + "</span>" : "");
-    el.onclick = () => { state.board = b.key; loadBoards(); loadItems(); };
+    el.onclick = () => { showFeed(); state.board = b.key; loadBoards(); loadItems(); };
     nav.appendChild(el);
   }
   const cur = data.find((b) => b.key === state.board);
@@ -137,6 +137,58 @@ async function loadItems() {
     };
     box.appendChild(el);
   }
+}
+
+/* ---------------- 邮箱（主区） ---------------- */
+
+async function loadMailView() {
+  const box = $("#mail-list");
+  box.innerHTML = '<div class="empty">读取中…</div>';
+  try {
+    const d = await api("/mail/list?limit=60");
+    box.innerHTML = "";
+    $("#mail-count").textContent = "未读 " + d.unread + " / 共 " + d.total;
+    $("#mail-badge").textContent = d.unread || "";
+    $("#mail-badge").hidden = !d.unread;
+
+    if (!d.messages.length) {
+      box.innerHTML = '<div class="empty">收件箱是空的</div>';
+      return;
+    }
+
+    for (const m of d.messages) {
+      const el = document.createElement("article");
+      el.className = "mail-item" + (m.seen ? "" : " unread");
+      el.innerHTML =
+        '<div class="subject">' + escapeHtml(m.subject) + "</div>" +
+        '<div class="meta">' +
+          '<span class="who">' + escapeHtml(m.from_name || m.from_addr) + "</span>" +
+          "<span>" + escapeHtml(m.date || "") + "</span>" +
+        "</div>";
+      el.onclick = () => window.open("https://mail.sjtu.edu.cn/zimbra/mail#1", "_blank");
+      box.appendChild(el);
+    }
+  } catch (e) {
+    const msg = String(e.message || e);
+    box.innerHTML = '<div class="empty">' +
+      (msg.includes("400") ? "还没有配置邮箱，去「订阅」里填地址和密码" : "读取失败：" + escapeHtml(msg)) +
+      "</div>";
+  }
+}
+
+function showMail() {
+  $("#feed-view").hidden = true;
+  $("#calendar-view").hidden = true;
+  $("#mail-view").hidden = false;
+  $("#nav-mail").classList.add("active");
+  document.querySelectorAll("#boards .board").forEach((b) => b.classList.remove("active"));
+  loadMailView();
+}
+
+function showFeed() {
+  $("#mail-view").hidden = true;
+  $("#feed-view").hidden = false;
+  $("#nav-mail").classList.remove("active");
 }
 
 /* ---------------- 日历 ---------------- */
@@ -826,6 +878,8 @@ $("#btn-feeds").onclick = openFeeds;
 $("#feed-add-btn").onclick = addFeed;
 $("#course-add-btn").onclick = addCourse;
 $("#act-close").onclick = () => $("#act-dlg").close();
+$("#nav-mail").onclick = showMail;
+$("#mail-refresh").onclick = loadMailView;
 $("#login-retry").onclick = startQR;
 $("#btn-login").onclick = () => { showLogin(true); startQR(); };
 $("#course-discover").onclick = async () => {

@@ -27,7 +27,9 @@ body {
 }
 .brand { display: flex; align-items: center; gap: 8px; font-weight: 600; padding: 6px 8px 14px; }
 .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--accent); }
-.boards { display: flex; flex-direction: column; gap: 2px; flex: 1; overflow-y: auto; }
+.boards { display: flex; flex-direction: column; gap: 2px; flex: 1; overflow-y: auto; min-height: 0; }
+.boards-inner { display: flex; flex-direction: column; gap: 2px; }
+.nav-sep { height: 1px; background: var(--line); margin: 6px 4px; }
 
 .board {
   display: flex; align-items: center; justify-content: space-between;
@@ -197,6 +199,17 @@ button.danger { color: var(--danger); border-color: #f0c9c4; }
 .hw-item.overdue .t { color: var(--muted); }
 .hw-item.overdue .d { color: #b6bcc6; }
 .hw-empty { color: #b6bcc6; font-size: 12px; padding: 14px 2px; text-align: center; }
+
+.mail-item {
+  background: var(--panel); border: 1px solid var(--line);
+  border-radius: var(--radius); padding: 12px 15px; margin-bottom: 8px; cursor: pointer;
+}
+.mail-item:hover { border-color: #c8cdd6; }
+.mail-item.unread { border-left: 3px solid var(--accent); }
+.mail-item .subject { font-weight: 600; line-height: 1.4; margin-bottom: 5px; }
+.mail-item.unread .subject { font-weight: 700; }
+.mail-item .meta { font-size: 12px; color: var(--muted); display: flex; gap: 12px; }
+.mail-item .meta .who { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 .mail-row {
   border-bottom: 1px solid var(--line); padding: 8px 2px; cursor: pointer;
