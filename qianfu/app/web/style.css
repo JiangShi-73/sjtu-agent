@@ -91,6 +91,8 @@ button.danger { color: var(--danger); border-color: #f0c9c4; }
   font-size: 11px; padding: 2px 7px; border-radius: 999px;
   background: var(--accent-soft); color: var(--accent); white-space: nowrap;
 }
+.tag.labor { background: #e6f7ec; color: #1a7f45; }
+.tag.newera { background: #fff4e5; color: #b06000; }
 .item-title { font-weight: 600; line-height: 1.4; }
 .item-summary {
   color: var(--muted); margin-top: 5px; line-height: 1.5;

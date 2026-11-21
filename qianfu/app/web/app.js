@@ -77,10 +77,17 @@ async function loadItems() {
     const el = document.createElement("article");
     el.className = "item" + (it.read ? " read" : "");
     const canSchedule = it.source === "second_classroom";
+    const x = it.source === "second_classroom" ? parseExtra(it) : {};
+    const badges = [];
+    if (x.labor_counted) {
+      badges.push('<span class="tag labor">劳动学时' + (x.labor_hours ? " " + x.labor_hours : "") + "</span>");
+    }
+    if (x.new_era) badges.push('<span class="tag newera">新时代讲座</span>');
 
     el.innerHTML =
       '<div class="item-head">' +
         (it.category ? '<span class="tag">' + escapeHtml(it.category) + "</span>" : "") +
+        badges.join("") +
         '<span class="item-title">' + escapeHtml(it.title) + "</span>" +
         '<span class="spacer"></span>' +
         '<span class="item-actions">' +
@@ -453,6 +460,8 @@ function openActivity(it) {
 
   const rows = [
     ["类型", it.category || x.status || ""],
+    ["劳动学时", x.labor_counted ? (x.labor_hours ? x.labor_hours + " 学时" : "计入") : "不计入"],
+    ["新时代讲座", x.new_era ? "计入" : "不计入"],
     ["活动时间", [x.start, x.end].filter(Boolean).join("  →  ")],
     ["报名时间", [x.signup_start, x.signup_end].filter(Boolean).join("  →  ")],
     ["报名方式", x.signup],
@@ -460,7 +469,7 @@ function openActivity(it) {
     ["主办", x.sponsor],
     ["人数", x.person_num],
     ["主讲", [x.presenter, x.presenter_bio].filter(Boolean).join(" · ")],
-  ].filter((r) => r[1]);
+  ].filter((r) => r[1] && !(r[0] === "劳动学时" && r[1] === "不计入") && !(r[0] === "新时代讲座" && r[1] === "不计入"));
 
   const meta = $("#act-meta");
   meta.innerHTML = "";

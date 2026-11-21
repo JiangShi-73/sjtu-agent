@@ -163,10 +163,70 @@ def fetch_activities(session: SessionStore, max_pages: int = 6) -> list[dict]:
     return out
 
 
-def activity_index(session: SessionStore) -> dict[str, dict]:
-    """活动名 -> 活动（含 id 和详情页地址）。"""
+def fetch_detail(client: httpx.Client, activity_id) -> dict:
+    try:
+        resp = client.get(f"{API}/activity/{activity_id}", params={"detail": 1})
+        if resp.status_code != 200:
+            return {}
+        return (resp.json().get("data") or {}).get("base_info") or {}
+    except (httpx.HTTPError, ValueError):
+        return {}
+
+
+def parse_properties(base: dict) -> dict:
+    """把 custom_properties 里的属性摊平。
+
+    平台用 JSON 字符串存活动属性，目前只有三项：
+        是否计入劳动学时 / 劳动学时 / 是否计入新时代社会认知实践讲座课
+    """
+    raw = base.get("custom_properties")
+    props: dict = {}
+    if raw:
+        try:
+            props = json.loads(raw)
+        except (TypeError, ValueError):
+            props = {}
+
+    hours = props.get("劳动学时")
+    try:
+        hours = float(hours) if hours not in (None, "") else 0.0
+    except (TypeError, ValueError):
+        hours = 0.0
+
     return {
-        (a.get("name") or "").strip(): {**a, "url": detail_url(a["id"])}
-        for a in fetch_activities(session)
-        if a.get("id") and a.get("name")
+        "labor_counted": props.get("是否计入劳动学时") == "是",
+        "labor_hours": hours,
+        "new_era": props.get("是否计入新时代社会认知实践讲座课") == "是",
+        "duration": base.get("duration"),
     }
+
+
+def activity_index(session: SessionStore, names: set[str] | None = None) -> dict[str, dict]:
+    """活动名 -> 活动（含 id、详情页地址、属性）。
+
+    只对 names 里出现过的活动再拉一次详情，避免几百次请求。
+    """
+    activities = fetch_activities(session)
+    if not activities:
+        return {}
+
+    token = get_token(session)
+    headers = {"Authorization": f"Bearer {token}"}
+    out: dict[str, dict] = {}
+
+    with httpx.Client(verify=False, timeout=20, headers=headers) as client:
+        for a in activities:
+            name = (a.get("name") or "").strip()
+            if not name or not a.get("id"):
+                continue
+            if names is not None and name not in names:
+                continue
+
+            base = fetch_detail(client, a["id"])
+            out[name] = {
+                **a,
+                "url": detail_url(a["id"]),
+                "props": parse_properties(base) if base else {},
+            }
+
+    return out

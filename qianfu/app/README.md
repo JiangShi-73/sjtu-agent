@@ -167,6 +167,22 @@ https://activity.sjtu.edu.cn/activity/detail/IjE5MTgwIiAg?activity_path=/dekt
 
 实测 38/38 全部命中。拿不到 token 时自动退回平台首页，不影响列表。
 
+### 活动属性
+
+详情接口 `/api/v1/activity/<id>?detail=1` 的 `custom_properties` 是个 JSON 字符串：
+
+```json
+{"是否计入劳动学时":"是","劳动学时":"2","是否计入新时代社会认知实践讲座课":"否"}
+```
+
+摊平成 `labor_counted / labor_hours / new_era` 三个字段，卡片上显示成徽章：
+
+- 绿色「劳动学时 2」
+- 橙色「新时代讲座」
+
+**平台没有「报酬」字段**——扫过 30 条活动的全部 base_info 字段和 custom_properties，
+只有上面三项。
+
 ## 信息流操作
 
 - **清理已读**：顶栏按钮，一次删掉所有已读条目

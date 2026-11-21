@@ -115,12 +115,13 @@ class SecondClassroomSource:
             try:
                 from .activity_portal import activity_index
 
-                index = activity_index(self.session)
+                index = activity_index(self.session, {i.title for i in report.items})
                 hit = 0
                 for item in report.items:
                     found = index.get(item.title)
                     if found:
                         item.url = found["url"]
+                        item.extra.update(found.get("props") or {})
                         hit += 1
                 if hit:
                     report.error = (report.error + " " if report.error else "") + f"详情页 {hit}/{len(report.items)}"
