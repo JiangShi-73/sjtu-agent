@@ -78,12 +78,14 @@
 
     <div class="rail-tabs">
       <button id="tab-hw" class="active">Canvas</button>
-      <button id="tab-zhitu">知途好课</button>
+      <button id="tab-zhitu">知途</button>
+      <button id="tab-mail">邮件</button>
       <button id="tab-day">当天</button>
     </div>
 
     <div id="rail-hw" class="rail-panel"></div>
     <div id="rail-zhitu" class="rail-panel" hidden></div>
+    <div id="rail-mail" class="rail-panel" hidden></div>
 
     <div id="rail-day" class="rail-panel" hidden>
       <div class="day-head">
@@ -147,6 +149,15 @@
         <button id="feed-add-btn" class="primary">添加</button>
       </div>
     </div>
+    <h2 class="section">邮箱</h2>
+    <p class="hint">用 IMAP 读收件箱，需要邮箱密码（不是扫码）。密码只存在本机。</p>
+    <div class="feed-add">
+      <input id="mail-address" placeholder="邮箱地址，如 xxx@sjtu.edu.cn" />
+      <input id="mail-password" type="password" placeholder="邮箱密码（留空则不修改）" />
+      <button id="mail-save" class="primary">保存并测试</button>
+    </div>
+    <div id="mail-status" class="hint"></div>
+
     <h2 class="section">慕课课程</h2>
     <p class="hint">在 CNMOOC 打开某门课的「测验与作业」，把地址栏粘过来。关掉开关就不再抓这门课。</p>
     <div id="course-list" class="feed-list"></div>

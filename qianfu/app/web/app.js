@@ -386,16 +386,53 @@ async function loadZhitu() {
   }
 }
 
+async function loadMail() {
+  const box = $("#rail-mail");
+  box.innerHTML = '<div class="hw-empty">读取中…</div>';
+  try {
+    const d = await api("/mail/list?limit=25");
+    box.innerHTML = "";
+    if (!d.messages || !d.messages.length) {
+      box.innerHTML = '<div class="hw-empty">收件箱是空的</div>';
+      return;
+    }
+    const head = document.createElement("div");
+    head.className = "mail-head";
+    head.innerHTML = "<span>收件箱</span><span>未读 " + d.unread + " / 共 " + d.total + "</span>";
+    box.appendChild(head);
+
+    for (const m of d.messages) {
+      const el = document.createElement("div");
+      el.className = "mail-row" + (m.seen ? "" : " unread");
+      el.innerHTML =
+        '<div class="mail-subject">' + escapeHtml(m.subject) + "</div>" +
+        '<div class="mail-meta">' +
+          '<span class="who">' + escapeHtml(m.from_name || m.from_addr) + "</span>" +
+          "<span>" + escapeHtml((m.date || "").slice(5)) + "</span>" +
+        "</div>";
+      el.onclick = () => window.open("https://mail.sjtu.edu.cn/zimbra/mail#1", "_blank");
+      box.appendChild(el);
+    }
+  } catch (e) {
+    const msg = String(e.message || e);
+    box.innerHTML = '<div class="hw-empty">' +
+      (msg.includes("400") ? "还没有配置邮箱，去「订阅」里填地址和密码" : "读取失败：" + escapeHtml(msg)) +
+      "</div>";
+  }
+}
+
 function switchRail(tab) {
   for (const [key, btn, panel] of [
     ["hw", "#tab-hw", "#rail-hw"],
     ["zhitu", "#tab-zhitu", "#rail-zhitu"],
+    ["mail", "#tab-mail", "#rail-mail"],
     ["day", "#tab-day", "#rail-day"],
   ]) {
     $(btn).classList.toggle("active", tab === key);
     $(panel).hidden = tab !== key;
   }
   if (tab === "zhitu") loadZhitu();
+  if (tab === "mail") loadMail();
 }
 
 /* ---------------- 视图切换 ---------------- */
@@ -829,6 +866,21 @@ $("#chat-input").addEventListener("keydown", (e) => { if (e.key === "Enter") sen
 
 $("#tab-hw").onclick = () => switchRail("hw");
 $("#tab-zhitu").onclick = () => switchRail("zhitu");
+$("#tab-mail").onclick = () => switchRail("mail");
+$("#mail-save").onclick = async () => {
+  const address = $("#mail-address").value.trim();
+  const password = $("#mail-password").value;
+  const box = $("#mail-status");
+  box.textContent = "保存中…";
+  const r = await api("/mail/settings", {
+    method: "PUT",
+    body: JSON.stringify({ address, password }),
+  });
+  box.textContent = r.tested
+    ? (r.ok ? "✓ 连接成功" : "✗ " + (r.error || "连接失败"))
+    : "已保存";
+  $("#mail-password").value = "";
+};
 $("#tab-day").onclick = () => switchRail("day");
 $("#rail-expand").onclick = () => switchView("calendar");
 $("#cal-close").onclick = () => switchView("feed");

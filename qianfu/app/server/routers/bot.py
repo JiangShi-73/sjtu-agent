@@ -153,6 +153,35 @@ def _find_activity(item_id: int) -> dict:
     raise HTTPException(status_code=404, detail="活动不存在")
 
 
+@router.get("/bot/mail")
+def bot_mail(limit: int = 10, format: str = "json"):
+    """收件箱最新邮件（机器人推送用）。"""
+    from .. import config
+    from xinge import mail as mailer
+
+    cfg = config.load()
+    address = cfg.get("mail_address") or ""
+    password = cfg.get("mail_password") or ""
+    if not (address and password):
+        raise HTTPException(status_code=400, detail="还没有配置邮箱")
+
+    try:
+        data = mailer.fetch_messages(address, password, limit=max(1, min(limit, 50)))
+    except mailer.MailError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+    if format == "text":
+        if not data["messages"]:
+            return {"count": 0, "text": "收件箱是空的"}
+        lines = [f"收件箱（未读 {data['unread']} / 共 {data['total']}）"]
+        for i, m in enumerate(data["messages"], 1):
+            lines.append(f"{i}. {m['subject']}")
+            lines.append(f"   {m['from_name'] or m['from_addr']} · {m['date']}")
+        return {"count": len(data["messages"]), "text": "\n".join(lines)}
+
+    return data
+
+
 @router.get("/bot/aihaoke")
 def aihaoke(days: int = 30, format: str = "json"):
     """知途好课：进行中的课程 + 作业截止。"""

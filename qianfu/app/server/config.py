@@ -19,6 +19,8 @@ DEFAULTS: dict = {
     "fetch_interval_min": 30,
     "rss_feeds": [],
     "cnmooc_courses": [],
+    "mail_address": "",
+    "mail_password": "",
 }
 
 
