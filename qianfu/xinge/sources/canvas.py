@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import re
 from datetime import datetime
 
 import httpx
@@ -38,15 +39,24 @@ class CanvasSource:
         report = FetchReport(source=self.key)
         try:
             with self._client() as client:
-                resp = client.get(f"{BASE}/planner/items", params={"per_page": 50})
-                if resp.status_code != 200:
-                    report.ok = False
-                    report.error = f"HTTP {resp.status_code}"
-                    return report
-                for raw in resp.json():
-                    item = self._to_item(raw)
-                    if item:
-                        report.items.append(item)
+                # 翻页：一页 50 条不够，近两个月的作业会漏掉
+                url = f"{BASE}/planner/items"
+                params = {"per_page": 100}
+                for _ in range(6):
+                    resp = client.get(url, params=params)
+                    if resp.status_code != 200:
+                        report.ok = False
+                        report.error = f"HTTP {resp.status_code}"
+                        return report
+                    for raw in resp.json():
+                        item = self._to_item(raw)
+                        if item:
+                            report.items.append(item)
+
+                    url = _next_link(resp)
+                    if not url:
+                        break
+                    params = None
         except httpx.HTTPError as exc:
             report.ok = False
             report.error = str(exc)
@@ -74,8 +84,20 @@ class CanvasSource:
             category={"announcement": "公告", "assignment": "作业"}.get(kind, kind),
             published=_parse(when),
             deadline=_parse(due_at),
-            extra={"course_id": raw.get("course_id")},
+            extra={
+                "course_id": raw.get("course_id"),
+                # 课程名（Canvas 的 context_name），右边栏按它分组
+                "course_name": raw.get("context_name") or "",
+                "submitted": bool((raw.get("submissions") or {}).get("submitted")),
+            },
         )
+
+
+def _next_link(resp: httpx.Response) -> str:
+    """Canvas 用 Link 头分页：<...?page=2>; rel="next"。"""
+    link = resp.headers.get("link", "")
+    m = re.search(r'<([^>]+)>;\s*rel="next"', link)
+    return m.group(1) if m else ""
 
 
 def _absolute(url: str | None) -> str:
@@ -85,9 +107,13 @@ def _absolute(url: str | None) -> str:
 
 
 def _parse(value: str | None) -> datetime | None:
+    """Canvas 给的是 UTC（带 Z），要换成北京时间，否则时间会差 8 小时。"""
     if not value:
         return None
     try:
-        return datetime.fromisoformat(value.replace("Z", "+00:00"))
+        dt = datetime.fromisoformat(value.replace("Z", "+00:00"))
     except ValueError:
         return None
+    if dt.tzinfo is not None:
+        dt = dt.astimezone().replace(tzinfo=None)   # UTC -> 本机时区
+    return dt
