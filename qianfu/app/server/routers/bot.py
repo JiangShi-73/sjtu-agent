@@ -153,6 +153,43 @@ def _find_activity(item_id: int) -> dict:
     raise HTTPException(status_code=404, detail="活动不存在")
 
 
+@router.get("/bot/aihaoke")
+def aihaoke(days: int = 30, format: str = "json"):
+    """知途好课：进行中的课程 + 作业截止。"""
+    from datetime import date, timedelta
+
+    today = date.today()
+    end = (today + timedelta(days=max(1, min(days, 120)))).isoformat()
+
+    rows = []
+    for row in db.list_items("zhitu", False, 200):
+        item = _plain(row)
+        if not db.is_scheduled(item):
+            continue
+        rows.append(
+            {
+                "id": item["id"],
+                "title": item["title"],
+                "course": item["extra"].get("course"),
+                "teacher": item["extra"].get("teacher"),
+                "deadline": item["deadline"],
+                "url": item["url"],
+            }
+        )
+    rows.sort(key=lambda x: x["deadline"] or "")
+
+    if format == "text":
+        if not rows:
+            return {"count": 0, "text": "知途好课暂无待交作业"}
+        lines = [f"知途好课待交作业（{len(rows)} 个）"]
+        for i, r in enumerate(rows, 1):
+            lines.append(f"{i}. {r['title']}")
+            lines.append(f"   截止 {r['deadline'][:16]}")
+        return {"count": len(rows), "text": "\n".join(lines)}
+
+    return {"count": len(rows), "items": rows}
+
+
 @router.get("/bot/activity/{item_id}")
 def activity_detail(item_id: int):
     """单个活动的详情（机器人回文字用）。"""

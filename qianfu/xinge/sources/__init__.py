@@ -7,6 +7,7 @@ from __future__ import annotations
 
 from ..auth import SessionStore
 from .activity_portal import activity_index, detail_url
+from .aihaoke import AihaokeSource
 from .canvas import CanvasSource
 from .cnmooc import CnmoocSource
 from .pe import PeSource
@@ -17,6 +18,7 @@ __all__ = [
     "CanvasSource",
     "CnmoocSource",
     "PeSource",
+    "AihaokeSource",
     "RssSource",
     "activity_index",
     "detail_url",
@@ -31,6 +33,7 @@ _FACTORIES = {
     "pe": lambda s, **kw: PeSource(s),
     "second_classroom": lambda s, **kw: SecondClassroomSource(s, **kw),
     "rss": lambda s, **kw: RssSource(),
+    "aihaoke": lambda s, **kw: AihaokeSource(s),
 }
 
 

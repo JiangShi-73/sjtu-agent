@@ -271,6 +271,24 @@ dialog h2 { margin: 0 0 14px; font-size: 16px; }
 
 .hint { font-size: 12px; color: var(--muted); line-height: 1.6; margin: 0 0 12px; }
 
+.login-overlay {
+  position: fixed; inset: 0; background: rgba(15, 20, 30, .55);
+  display: flex; align-items: center; justify-content: center; z-index: 100;
+}
+.login-card {
+  background: var(--panel); border-radius: 14px; padding: 26px 30px;
+  width: 320px; text-align: center; box-shadow: 0 12px 40px rgba(0,0,0,.18);
+}
+.login-card h2 { margin: 0 0 6px; font-size: 17px; }
+.login-card .hint { margin-bottom: 16px; }
+.login-card img {
+  width: 220px; height: 220px; display: block; margin: 0 auto 14px;
+  border: 1px solid var(--line); border-radius: 10px; background: #fff;
+}
+.login-state { font-size: 12px; color: var(--muted); margin-bottom: 12px; min-height: 16px; }
+.login-state.ok { color: #1a7f45; }
+.login-state.bad { color: var(--danger); }
+
 .diag-section { margin-bottom: 16px; }
 .diag-section h3 { font-size: 13px; margin: 0 0 6px; color: var(--muted); font-weight: 600; }
 .diag-section p { margin: 3px 0; font-size: 13px; }

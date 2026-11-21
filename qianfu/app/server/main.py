@@ -100,4 +100,18 @@ async def websocket_endpoint(ws: WebSocket):
         bus.unsubscribe(queue)
 
 
-app.mount("/static", StaticFiles(directory=WEB_DIR, html=True), name="static")
+class NoCacheStatic(StaticFiles):
+    """界面文件不缓存。
+
+    Electron 会把 app.js / style.css 缓存住，改了代码用户看不到新功能，
+    每次都让人手动刷新太蠢，直接不让缓存。
+    """
+
+    async def get_response(self, path, scope):
+        resp = await super().get_response(path, scope)
+        resp.headers["Cache-Control"] = "no-store, must-revalidate"
+        resp.headers["Pragma"] = "no-cache"
+        return resp
+
+
+app.mount("/static", NoCacheStatic(directory=WEB_DIR, html=True), name="static")

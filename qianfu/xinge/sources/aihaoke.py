@@ -20,6 +20,7 @@ import time
 import httpx
 
 from ..auth import SessionStore
+from ..core import FetchReport, Item, register_source
 
 HOST = "https://sjtu.aihaoke.net"
 SSO = f"{HOST}/api/auth/unified/toAuth?type=unified&deviceType=1"
@@ -133,6 +134,23 @@ def _post(creds: dict, path: str, payload: dict) -> dict:
     return resp.json()
 
 
+def fetch_tasks(creds: dict, instance_id, class_id) -> list[dict]:
+    """某门课的学习任务（含作业，带截止时间）。"""
+    try:
+        data = _post(
+            creds,
+            "/api/learn/task/listTask",
+            {
+                "instanceId": instance_id,
+                "classId": class_id,
+                "page": {"pageNo": 1, "pageSize": 100},
+            },
+        )
+    except (httpx.HTTPError, ValueError):
+        return []
+    return ((data.get("data") or {}).get("rowList")) or []
+
+
 def fetch_courses(session: SessionStore) -> list[dict]:
     """我的课程。"""
     creds = credentials(session)
@@ -170,3 +188,69 @@ def fetch_courses(session: SessionStore) -> list[dict]:
             }
         )
     return out
+
+
+def _parse_dt(value: str):
+    from datetime import datetime
+
+    try:
+        dt = datetime.strptime(value, "%Y-%m-%d %H:%M:%S")
+    except (TypeError, ValueError):
+        return None
+    return None if dt.year >= 9000 else dt          # 9999 表示"无截止"
+
+
+@register_source
+class AihaokeSource:
+    key = "aihaoke"
+    name = "知途好课"
+    auth = "jaccount"
+
+    def __init__(self, session: SessionStore | None = None) -> None:
+        self.session = session or SessionStore()
+
+    def fetch(self) -> FetchReport:
+        from datetime import datetime
+
+        started = datetime.now()
+        report_ts = started
+        report = FetchReport(source=self.key)
+
+        creds = credentials(self.session)
+        if not creds:
+            report.ok = False
+            report.error = "知途好课登录失败（需要浏览器走一次 SSO）"
+            return report
+
+        for course in fetch_courses(self.session):
+            if course["finished"]:
+                continue                            # 只抓进行中的课
+            tasks = fetch_tasks(creds, course["instance_id"], course["class_id"])
+            for t in tasks:
+                deadline = _parse_dt(t.get("endTime"))
+                if not deadline:
+                    continue                        # 没有截止时间的不是作业
+                if deadline < datetime.now():
+                    continue                        # 过期的不进信息流
+                report.items.append(
+                    Item(
+                        source=self.key,
+                        uid=f"task:{t.get('taskId')}",
+                        title=f"{course['name']} · {t.get('taskName')}",
+                        url=course["url"],
+                        summary=course.get("teacher") or "",
+                        category="作业",
+                        deadline=deadline,
+                        extra={
+                            "board": "zhitu",
+                            "course": course["name"],
+                            "teacher": course["teacher"],
+                            "done": bool(t.get("doneFlag")),
+                            "task_type": t.get("taskType"),
+                            "status": t.get("myStatus"),
+                        },
+                    )
+                )
+
+        report.elapsed_ms = int((datetime.now() - started).total_seconds() * 1000)
+        return report

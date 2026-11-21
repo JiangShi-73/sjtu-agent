@@ -663,6 +663,69 @@ async function addFeed() {
   loadItems();
 }
 
+/* ---------------- 登录 ---------------- */
+
+let qrSession = null;
+let qrVersion = -1;
+
+function showLogin(show) {
+  $("#login-overlay").hidden = !show;
+  $("#btn-login").hidden = !show;
+}
+
+async function ensureLogin() {
+  try {
+    const st = await api("/auth/status");
+    if (st.logged_in) { showLogin(false); return; }
+  } catch (e) { /* 忽略 */ }
+  showLogin(true);
+  await startQR();
+}
+
+async function startQR() {
+  $("#login-state").textContent = "正在获取二维码…";
+  $("#login-state").className = "login-state";
+  $("#login-retry").hidden = true;
+
+  try {
+    const r = await api("/auth/qr/start", { method: "POST" });
+    if (r.already) { location.reload(); return; }
+    qrSession = r.id;
+    qrVersion = r.version;
+    $("#login-qr").src = "data:image/png;base64," + r.png;
+    $("#login-state").textContent = "等待扫码…";
+    setTimeout(pollQR, 1200);
+  } catch (e) {
+    $("#login-state").textContent = "获取失败：" + e.message;
+    $("#login-state").className = "login-state bad";
+    $("#login-retry").hidden = false;
+  }
+}
+
+async function pollQR() {
+  if (!qrSession) return;
+  try {
+    const s = await api("/auth/qr/status/" + qrSession);
+    if (s.version !== qrVersion && s.png) {
+      qrVersion = s.version;
+      $("#login-qr").src = "data:image/png;base64," + s.png;
+    }
+    if (s.state === "ok") {
+      $("#login-state").textContent = "登录成功，正在加载…";
+      $("#login-state").className = "login-state ok";
+      setTimeout(() => location.reload(), 800);
+      return;
+    }
+    if (s.state === "timeout" || s.state === "error" || s.state === "missing") {
+      $("#login-state").textContent = s.state === "timeout" ? "二维码已过期" : "登录失败";
+      $("#login-state").className = "login-state bad";
+      $("#login-retry").hidden = false;
+      return;
+    }
+  } catch (e) { /* 网络抖动，继续轮询 */ }
+  setTimeout(pollQR, 1500);
+}
+
 /* ---------------- 全局 ---------------- */
 
 async function fetchAll() {
@@ -726,6 +789,8 @@ $("#btn-feeds").onclick = openFeeds;
 $("#feed-add-btn").onclick = addFeed;
 $("#course-add-btn").onclick = addCourse;
 $("#act-close").onclick = () => $("#act-dlg").close();
+$("#login-retry").onclick = startQR;
+$("#btn-login").onclick = () => { showLogin(true); startQR(); };
 $("#course-discover").onclick = async () => {
   const btn = $("#course-discover");
   btn.disabled = true;
@@ -774,6 +839,7 @@ $("#cal-prev").onclick = $("#rail-prev").onclick;
 $("#cal-next").onclick = $("#rail-next").onclick;
 $("#cal-today").onclick = () => { state.month = new Date(); state.selected = todayStr(); loadCalendar(); };
 
+ensureLogin();
 loadBoards();
 loadItems();
 loadCalendar();

@@ -81,6 +81,7 @@ DEFAULT_BOARDS = [
     ("lab", "实验", 30),
     ("mooc", "慕课", 40),
     ("wechat", "公众号", 50),
+    ("zhitu", "知途好课", 60),
     ("custom", "自定义", 90),
 ]
 
@@ -91,6 +92,7 @@ SOURCE_BOARD = {
     "pe": "lab",
     "cnmooc": "mooc",
     "rss": "custom",          # 单条订阅可以在 extra.board 里覆盖
+    "aihaoke": "zhitu",
 }
 
 
@@ -416,6 +418,7 @@ CALENDAR_RULES: tuple[tuple[str, str], ...] = (
     ("canvas", "作业"),
     ("pe", "实验"),
     ("cnmooc", "作业/测验"),
+    ("aihaoke", "作业"),
 )
 
 

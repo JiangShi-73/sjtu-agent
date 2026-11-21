@@ -27,6 +27,35 @@ def health():
     }
 
 
+@router.get("/auth/status")
+def auth_status():
+    from .. import qrlogin
+
+    return qrlogin.status()
+
+
+@router.post("/auth/qr/start")
+def auth_qr_start():
+    from .. import qrlogin
+
+    return qrlogin.start()
+
+
+@router.get("/auth/qr/status/{sid}")
+def auth_qr_status(sid: str):
+    from .. import qrlogin
+
+    return qrlogin.poll(sid)
+
+
+@router.post("/auth/qr/cancel/{sid}")
+def auth_qr_cancel(sid: str):
+    from .. import qrlogin
+
+    qrlogin.cancel(sid)
+    return {"ok": True}
+
+
 @router.get("/system/browser")
 def browser_status():
     """这台机器上能不能找到浏览器（截图和课程检测都靠它）。"""
