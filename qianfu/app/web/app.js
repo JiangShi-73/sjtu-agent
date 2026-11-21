@@ -357,12 +357,45 @@ async function loadHomework() {
   }
 }
 
+async function loadZhitu() {
+  const box = $("#rail-zhitu");
+  box.innerHTML = '<div class="hw-empty">读取中…</div>';
+  try {
+    const { courses } = await api("/aihaoke/courses");
+    box.innerHTML = "";
+    if (!courses.length) {
+      box.innerHTML = '<div class="hw-empty">还没有课程，或者登录已过期</div>';
+      return;
+    }
+    for (const c of courses) {
+      const el = document.createElement("div");
+      el.className = "zt-card";
+      el.innerHTML =
+        '<div class="zt-name">' + escapeHtml(c.name) + "</div>" +
+        '<div class="zt-meta">' +
+          '<span class="zt-state ' + (c.finished ? "off" : "on") + '">' +
+            (c.finished ? "已结课" : "进行中") + "</span>" +
+          "<span>" + escapeHtml(c.teacher || "") + "</span>" +
+        "</div>" +
+        (c.intro ? '<div class="zt-intro">' + escapeHtml(c.intro) + "</div>" : "");
+      el.onclick = () => window.open(c.url, "_blank");
+      box.appendChild(el);
+    }
+  } catch (e) {
+    box.innerHTML = '<div class="hw-empty">读取失败：' + escapeHtml(e.message) + "</div>";
+  }
+}
+
 function switchRail(tab) {
-  const isHw = tab === "hw";
-  $("#tab-hw").classList.toggle("active", isHw);
-  $("#tab-day").classList.toggle("active", !isHw);
-  $("#rail-hw").hidden = !isHw;
-  $("#rail-day").hidden = isHw;
+  for (const [key, btn, panel] of [
+    ["hw", "#tab-hw", "#rail-hw"],
+    ["zhitu", "#tab-zhitu", "#rail-zhitu"],
+    ["day", "#tab-day", "#rail-day"],
+  ]) {
+    $(btn).classList.toggle("active", tab === key);
+    $(panel).hidden = tab !== key;
+  }
+  if (tab === "zhitu") loadZhitu();
 }
 
 /* ---------------- 视图切换 ---------------- */
@@ -730,6 +763,7 @@ $("#chat-send").onclick = sendChat;
 $("#chat-input").addEventListener("keydown", (e) => { if (e.key === "Enter") sendChat(); });
 
 $("#tab-hw").onclick = () => switchRail("hw");
+$("#tab-zhitu").onclick = () => switchRail("zhitu");
 $("#tab-day").onclick = () => switchRail("day");
 $("#rail-expand").onclick = () => switchView("calendar");
 $("#cal-close").onclick = () => switchView("feed");

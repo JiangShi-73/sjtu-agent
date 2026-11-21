@@ -257,6 +257,30 @@ httpx 和 curl 都试过，换了完整浏览器头也没用。所以课程靠**
 
 没配 AI Key 也能用；将来接上模型只是**增强**，不是前提。
 
+## 知途好课（右边栏）
+
+右栏第三个页签，列出 `sjtu.aihaoke.net` 上的课程（名称、教师、进行中/已结课、简介）。
+
+这个平台不是 jAccount 直连，走自己的 passport：
+
+```
+/api/auth/unified/toAuth?type=unified&deviceType=1
+  → jAccount SSO → loginByTicket
+  → cookie: haoke-token  +  header: Authorization: Bearer <JWT>
+```
+
+拿到这两个之后就是普通 HTTP 请求，不用每次开浏览器：
+
+```
+POST /api/teach/instance/listMyClass  {"instanceName":"","classId":0}
+  → data.teachClassResponseList[]
+```
+
+凭据缓存在 `~/.xinge/aihaoke.json`，12 小时有效（这个 JWT 没有 exp 字段，
+所以按保守值算）。过期后第一次请求会自动开一次浏览器换新（约 12 秒）。
+
+接口：`GET /api/v1/aihaoke/courses`
+
 ## 浏览器依赖
 
 有几处必须用真浏览器（CNMOOC 课程检测、活动详情截图、活动平台 token）。
