@@ -76,7 +76,7 @@ CREATE INDEX IF NOT EXISTS idx_events_date ON events(event_date);
 """
 
 DEFAULT_BOARDS = [
-    ("course", "课程", 10),
+    ("course", "Canvas", 10),
     ("event", "活动", 20),
     ("lab", "实验", 30),
     ("mooc", "慕课", 40),
@@ -107,8 +107,10 @@ def init() -> None:
     try:
         conn.executescript(SCHEMA)
         for key, name, sort in DEFAULT_BOARDS:
+            # 名称跟着代码走：改了 DEFAULT_BOARDS 下次启动就生效
             conn.execute(
-                "INSERT OR IGNORE INTO boards(key, name, sort) VALUES (?,?,?)",
+                """INSERT INTO boards(key, name, sort) VALUES (?,?,?)
+                   ON CONFLICT(key) DO UPDATE SET name=excluded.name, sort=excluded.sort""",
                 (key, name, sort),
             )
         conn.commit()

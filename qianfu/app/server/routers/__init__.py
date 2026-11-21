@@ -1,3 +1,4 @@
+from .canvas import router as canvas_router
 from .courses import router as courses_router
 from .events import router as events_router
 from .items import router as items_router
@@ -6,6 +7,7 @@ from .sources import router as sources_router
 from .system import router as system_router
 
 __all__ = [
+    "canvas_router",
     "courses_router",
     "events_router",
     "items_router",
