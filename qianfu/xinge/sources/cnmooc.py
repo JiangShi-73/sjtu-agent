@@ -106,6 +106,8 @@ def discover_courses(session: SessionStore) -> list[dict]:
     """
     try:
         from playwright.sync_api import sync_playwright
+
+        from ..browser import launch
     except ImportError:
         return []
 
@@ -118,18 +120,9 @@ def discover_courses(session: SessionStore) -> list[dict]:
         return []
 
     with sync_playwright() as p:
-        browser = None
-        for channel in ("msedge", "chrome", None):
-            try:
-                browser = (
-                    p.chromium.launch(channel=channel, headless=True)
-                    if channel
-                    else p.chromium.launch(headless=True)
-                )
-                break
-            except Exception:
-                continue
-        if browser is None:
+        try:
+            browser = launch(p, headless=True)
+        except RuntimeError:
             return []
 
         try:

@@ -11,6 +11,7 @@ import os
 import time
 
 from xinge.auth import SessionStore
+from xinge.browser import launch
 
 SHOT_DIR = os.path.join(os.path.expanduser("~"), ".xinge", "shots")
 TTL_SECONDS = 600
@@ -55,19 +56,7 @@ def capture(url: str, session: SessionStore | None = None, force: bool = False) 
     ]
 
     with sync_playwright() as p:
-        browser = None
-        for channel in ("msedge", "chrome", None):
-            try:
-                browser = (
-                    p.chromium.launch(channel=channel, headless=True)
-                    if channel
-                    else p.chromium.launch(headless=True)
-                )
-                break
-            except Exception:
-                continue
-        if browser is None:
-            raise RuntimeError("找不到可用的浏览器（Edge / Chrome）")
+        browser = launch(p, headless=True)
 
         try:
             ctx = browser.new_context(viewport=VIEWPORT, device_scale_factor=2)

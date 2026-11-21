@@ -63,6 +63,8 @@ def _token_from_browser(session: SessionStore) -> str:
     """用本机浏览器走一次 SSO，把 IMPSA-Token 取出来。"""
     try:
         from playwright.sync_api import sync_playwright
+
+        from ..browser import launch
     except ImportError:
         return ""
 
@@ -75,18 +77,9 @@ def _token_from_browser(session: SessionStore) -> str:
         return ""
 
     with sync_playwright() as p:
-        browser = None
-        for channel in ("msedge", "chrome", None):
-            try:
-                browser = (
-                    p.chromium.launch(channel=channel, headless=True)
-                    if channel
-                    else p.chromium.launch(headless=True)
-                )
-                break
-            except Exception:
-                continue
-        if browser is None:
+        try:
+            browser = launch(p, headless=True)
+        except RuntimeError:
             return ""
 
         try:

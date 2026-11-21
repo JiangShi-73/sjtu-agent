@@ -27,6 +27,14 @@ def health():
     }
 
 
+@router.get("/system/browser")
+def browser_status():
+    """这台机器上能不能找到浏览器（截图和课程检测都靠它）。"""
+    from xinge import browser
+
+    return browser.status()
+
+
 @router.get("/diagnose")
 def diagnose():
     """结构化诊断：问题列表 + 每个源的状态 + 登录态。"""

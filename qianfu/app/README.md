@@ -257,6 +257,28 @@ httpx 和 curl 都试过，换了完整浏览器头也没用。所以课程靠**
 
 没配 AI Key 也能用；将来接上模型只是**增强**，不是前提。
 
+## 浏览器依赖
+
+有几处必须用真浏览器（CNMOOC 课程检测、活动详情截图、活动平台 token）。
+换一台电脑不能假设装了 Chromium，所以 `xinge/browser.py` 按顺序找：
+
+1. **Microsoft Edge**（Windows 10/11 系统自带）
+2. **Google Chrome**
+3. Playwright 自带 chromium（跑过 `playwright install` 才有）
+4. 手动扫常见安装路径（Windows 的 Program Files、macOS 的 /Applications、Linux 的 PATH）
+
+都找不到才报错，错误信息里会写清楚试过什么。
+
+打开「诊断」能看到当前用的是哪个浏览器：
+
+```
+浏览器
+  ✓ 157.0.4341.60
+  C:\Program Files\Google\Chrome\Application\chrome.exe
+```
+
+接口：`GET /api/v1/system/browser`
+
 ## 公众号 / RSS
 
 公众号**没有官方开放接口**，社区通行做法是先转成 RSS 再消费。所以这里拆成两半：

@@ -653,10 +653,25 @@ async function fetchAll() {
 }
 
 async function diagnose() {
-  const d = await api("/diagnose");
-  $("#diag-body").innerHTML = d.ok
-    ? "<p>没有发现错误。</p>"
+  const [d, b] = await Promise.all([api("/diagnose"), api("/system/browser")]);
+
+  let html = '<div class="diag-section"><h3>浏览器</h3>';
+  if (b.launch_error) {
+    html += '<p class="bad">✗ 用不了：' + escapeHtml(b.launch_error) + "</p>";
+  } else if (b.version) {
+    html += '<p class="ok">✓ ' + escapeHtml(b.version) + "</p>" +
+      '<p class="muted">' + escapeHtml(b.executable || "Playwright 自带 Chromium") + "</p>";
+  } else {
+    html += '<p class="bad">✗ 没找到 Edge / Chrome，截图功能不可用</p>';
+  }
+  html += "</div>";
+
+  html += '<div class="diag-section"><h3>抓取</h3>';
+  html += d.ok ? "<p class='ok'>✓ 没有发现错误</p>"
     : "<pre>" + escapeHtml(JSON.stringify(d, null, 2)) + "</pre>";
+  html += "</div>";
+
+  $("#diag-body").innerHTML = html;
   $("#diag").showModal();
 }
 
