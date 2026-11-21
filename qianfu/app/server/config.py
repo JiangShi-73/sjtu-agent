@@ -19,6 +19,7 @@ DEFAULTS: dict = {
     "fetch_interval_min": 30,
     "rss_feeds": [],
     "cnmooc_courses": [],
+    "college_enabled": {},
     "wechat_articles": [],
     "mail_address": "",
     "mail_password": "",
@@ -44,7 +45,7 @@ def save(values: dict) -> dict:
     current = load()
     # rss_feeds 是列表，不能按标量规则过滤
     current.update(
-        {k: v for k, v in values.items() if k in DEFAULTS or k in ("rss_feeds", "wechat_articles")}
+        {k: v for k, v in values.items() if k in DEFAULTS or k in ("rss_feeds", "wechat_articles", "college_enabled")}
     )
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     CONFIG_PATH.write_text(

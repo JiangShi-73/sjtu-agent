@@ -13,6 +13,8 @@ from __future__ import annotations
 
 import hashlib
 import html as htmllib
+import json
+import os
 import re
 from datetime import datetime
 from urllib.parse import urljoin
@@ -103,6 +105,17 @@ def extract(html: str, page_url: str, college: dict) -> list[Item]:
     return items
 
 
+def _disabled() -> set[str]:
+    """用户关掉的学院（config.json 的 college_enabled）。"""
+    path = os.path.join(os.path.expanduser("~"), ".xinge", "config.json")
+    try:
+        with open(path, encoding="utf-8") as fh:
+            m = json.load(fh).get("college_enabled") or {}
+    except (OSError, json.JSONDecodeError):
+        return set()
+    return {k for k, v in m.items() if v is False}
+
+
 def _fetch_html(client: httpx.Client, url: str) -> str:
     resp = client.get(url)
     resp.raise_for_status()
@@ -143,7 +156,12 @@ class CollegeSource:
         report = FetchReport(source=self.key)
         errors: list[str] = []
 
-        sites = [c for c in COLLEGES if not self.only or c["key"] in self.only]
+        disabled = _disabled()
+        sites = [
+            c
+            for c in COLLEGES
+            if (not self.only or c["key"] in self.only) and c["key"] not in disabled
+        ]
 
         with httpx.Client(
             headers={"User-Agent": UA}, timeout=25, follow_redirects=True

@@ -23,7 +23,7 @@ from datetime import date, datetime, timedelta
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import Response
 
-from .. import db, shots
+from .. import config, db, shots
 
 router = APIRouter(tags=["bot"])
 
@@ -151,6 +151,78 @@ def _find_activity(item_id: int) -> dict:
                 raise HTTPException(status_code=400, detail="这条不是第二课堂活动")
             return item
     raise HTTPException(status_code=404, detail="活动不存在")
+
+
+@router.get("/bot/colleges")
+def bot_colleges(format: str = "json"):
+    """学院公告的学院列表（带订阅状态和条数）。"""
+    from xinge.sources.college_sites import COLLEGES
+
+    cfg = config.load()
+    enabled_map = cfg.get("college_enabled") or {}
+    stats = db.count_by_category("college")
+
+    rows = []
+    for c in COLLEGES:
+        stat = stats.get(c["name"], {"count": 0, "unread": 0})
+        rows.append(
+            {
+                "key": c["key"],
+                "name": c["name"],
+                "enabled": bool(enabled_map.get(c["key"], True)) and c["mode"] != "todo",
+                "count": stat["count"],
+                "unread": stat["unread"],
+            }
+        )
+    rows.sort(key=lambda x: (-x["count"], x["name"]))
+
+    if format == "text":
+        lines = [f"学院公告（{len(rows)} 个学院）"]
+        for i, r in enumerate(rows, 1):
+            mark = "" if r["enabled"] else "（未订阅）"
+            lines.append(f'{i}. {r["name"]}  {r["count"]} 条{mark}')
+        return {"count": len(rows), "text": "\n".join(lines)}
+
+    return {"count": len(rows), "colleges": rows}
+
+
+@router.get("/bot/colleges/{key}")
+def bot_college_items(key: str, limit: int = 10, format: str = "json"):
+    """某个学院的公告。"""
+    from xinge.sources.college_sites import COLLEGES
+
+    site = next((c for c in COLLEGES if c["key"] == key), None)
+    if not site:
+        raise HTTPException(status_code=404, detail="学院不存在")
+
+    rows = []
+    for row in db.list_items("college", False, 500):
+        if row["category"] != site["name"]:
+            continue
+        item = _plain(row)
+        rows.append(
+            {
+                "id": item["id"],
+                "title": item["title"],
+                "url": item["url"],
+                "date": item["published"],
+                "college": site["name"],
+            }
+        )
+        if len(rows) >= max(1, min(limit, 50)):
+            break
+
+    if format == "text":
+        if not rows:
+            return {"count": 0, "text": f'{site["name"]}暂无公告'}
+        lines = [f'{site["name"]}（{len(rows)} 条）']
+        for i, r in enumerate(rows, 1):
+            lines.append(f'{i}. {r["title"]}')
+            if r["date"]:
+                lines.append(f'   {r["date"][:10]}')
+        return {"count": len(rows), "text": "\n".join(lines)}
+
+    return {"count": len(rows), "college": site["name"], "items": rows}
 
 
 @router.get("/bot/mail")

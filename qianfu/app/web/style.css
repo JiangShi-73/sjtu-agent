@@ -200,6 +200,18 @@ button.danger { color: var(--danger); border-color: #f0c9c4; }
 .hw-item.overdue .d { color: #b6bcc6; }
 .hw-empty { color: #b6bcc6; font-size: 12px; padding: 14px 2px; text-align: center; }
 
+.college-group { margin-bottom: 18px; }
+.college-head {
+  display: flex; align-items: center; justify-content: space-between;
+  font-size: 12px; font-weight: 600; color: var(--muted);
+  padding: 0 2px 6px; margin-bottom: 8px;
+  border-bottom: 1px solid var(--line);
+}
+.college-head span:last-child {
+  background: var(--accent-soft); color: var(--accent);
+  border-radius: 999px; padding: 1px 8px; font-size: 11px;
+}
+
 .mail-item {
   background: var(--panel); border: 1px solid var(--line);
   border-radius: var(--radius); padding: 12px 15px; margin-bottom: 8px; cursor: pointer;

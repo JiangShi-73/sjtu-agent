@@ -239,6 +239,23 @@ def mark_pushed(ids: list[int]) -> int:
         conn.close()
 
 
+def count_by_category(board: str) -> dict:
+    """按 category 统计条数和未读。"""
+    conn = connect()
+    try:
+        rows = conn.execute(
+            """SELECT category,
+                      COUNT(*) AS c,
+                      SUM(CASE WHEN read_at IS NULL THEN 1 ELSE 0 END) AS u
+               FROM items WHERE board=?
+               GROUP BY category""",
+            (board,),
+        ).fetchall()
+        return {r["category"]: {"count": r["c"], "unread": r["u"] or 0} for r in rows}
+    finally:
+        conn.close()
+
+
 def delete_item(item_id: int) -> bool:
     conn = connect()
     try:

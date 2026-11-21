@@ -58,22 +58,7 @@ async function loadBoards() {
 
 /* ---------------- 信息流 ---------------- */
 
-async function loadItems() {
-  const params = new URLSearchParams({ limit: "200" });
-  if (state.board) params.set("board", state.board);
-  if (state.onlyUnread) params.set("unread", "true");
-
-  const { items } = await api("/items?" + params);
-  const box = $("#items");
-  box.innerHTML = "";
-  $("#count").textContent = items.length ? items.length + " 条" : "";
-
-  if (!items.length) {
-    box.innerHTML = '<div class="empty">还没有内容，点左下角「抓取全部」试试</div>';
-    return;
-  }
-
-  for (const it of items) {
+function renderItemCard(it) {
     const el = document.createElement("article");
     el.className = "item" + (it.read ? " read" : "");
     const canSchedule = it.source === "second_classroom";
@@ -123,19 +108,66 @@ async function loadItems() {
       };
     });
 
-    el.onclick = async () => {
-      if (!it.read) {
-        await api("/items/" + it.id + "/read", { method: "POST" });
-        loadBoards();
-        loadItems();
-      }
-      if (it.source === "second_classroom") {
-        openActivity(it);
-      } else if (it.url) {
-        window.open(it.url, "_blank");
-      }
-    };
-    box.appendChild(el);
+  el.onclick = async () => {
+    if (!it.read) {
+      await api("/items/" + it.id + "/read", { method: "POST" });
+      loadBoards();
+      loadItems();
+    }
+    if (it.source === "second_classroom") {
+      openActivity(it);
+    } else if (it.url) {
+      window.open(it.url, "_blank");
+    }
+  };
+  return el;
+}
+
+async function loadItems() {
+  const params = new URLSearchParams({ limit: "200" });
+  if (state.board) params.set("board", state.board);
+  if (state.onlyUnread) params.set("unread", "true");
+
+  const { items } = await api("/items?" + params);
+  const box = $("#items");
+  box.innerHTML = "";
+  $("#count").textContent = items.length ? items.length + " 条" : "";
+
+  if (!items.length) {
+    box.innerHTML = '<div class="empty">还没有内容，点左下角「抓取全部」试试</div>';
+    return;
+  }
+
+  // 学院公告按学院分组，不要混在一起
+  if (state.board === "college") {
+    renderCollegeGroups(box, items);
+    return;
+  }
+
+  for (const it of items) {
+    box.appendChild(renderItemCard(it));
+  }
+}
+
+function renderCollegeGroups(box, items) {
+  const groups = new Map();
+  for (const it of items) {
+    const key = it.category || "未分组";
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(it);
+  }
+
+  for (const [name, list] of groups) {
+    const section = document.createElement("section");
+    section.className = "college-group";
+
+    const head = document.createElement("div");
+    head.className = "college-head";
+    head.innerHTML = "<span>" + escapeHtml(name) + "</span><span>" + list.length + "</span>";
+    section.appendChild(head);
+
+    for (const it of list) section.appendChild(renderItemCard(it));
+    box.appendChild(section);
   }
 }
 
@@ -640,9 +672,41 @@ function openActivity(it) {
 
 async function openFeeds() {
   await renderFeeds();
+  await renderColleges();
   await renderWx();
   await renderCourses();
   $("#feeds-dlg").showModal();
+}
+
+async function renderColleges() {
+  const { colleges } = await api("/colleges");
+  const box = $("#college-list");
+  box.innerHTML = "";
+
+  for (const c of colleges) {
+    const row = document.createElement("div");
+    row.className = "course-row" + (c.enabled ? "" : " off");
+
+    const cb = document.createElement("input");
+    cb.type = "checkbox";
+    cb.checked = c.enabled;
+    cb.disabled = c.mode === "todo";
+    cb.onchange = async () => {
+      await api("/colleges/" + c.key, {
+        method: "PATCH",
+        body: JSON.stringify({ enabled: cb.checked }),
+      });
+      renderColleges();
+    };
+
+    const name = document.createElement("div");
+    name.className = "name";
+    name.innerHTML = escapeHtml(c.name) +
+      '<span class="id">' + (c.mode === "todo" ? "待适配" : c.count + " 条") + "</span>";
+
+    row.append(cb, name);
+    box.appendChild(row);
+  }
 }
 
 async function renderWx() {

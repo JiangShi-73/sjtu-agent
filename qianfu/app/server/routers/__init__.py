@@ -1,6 +1,7 @@
 from .aihaoke import router as aihaoke_router
 from .bot import router as bot_router
 from .canvas import router as canvas_router
+from .colleges import router as colleges_router
 from .courses import router as courses_router
 from .mail import router as mail_router
 from .events import router as events_router
@@ -13,6 +14,7 @@ __all__ = [
     "aihaoke_router",
     "bot_router",
     "canvas_router",
+    "colleges_router",
     "courses_router",
     "mail_router",
     "events_router",

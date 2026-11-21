@@ -25,6 +25,7 @@ from .routers import (
     aihaoke_router,
     bot_router,
     canvas_router,
+    colleges_router,
     courses_router,
     mail_router,
     events_router,
@@ -76,6 +77,7 @@ app.include_router(items_router, prefix="/api/v1")
 app.include_router(settings_router, prefix="/api/v1")
 app.include_router(events_router, prefix="/api/v1")
 app.include_router(courses_router, prefix="/api/v1")
+app.include_router(colleges_router, prefix="/api/v1")
 app.include_router(mail_router, prefix="/api/v1")
 app.include_router(canvas_router, prefix="/api/v1")
 app.include_router(bot_router, prefix="/api/v1")
