@@ -23,6 +23,7 @@ from . import db
 from .events import bus
 from .routers import (
     agent_router,
+    api_manage_router,
     aihaoke_router,
     bot_router,
     canvas_router,
@@ -82,6 +83,22 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+@app.middleware("http")
+async def bot_guard(request, call_next):
+    """机器人接口的开关：关掉的直接 403。"""
+    path = request.url.path
+    if path.startswith("/api/v1/bot"):
+        from . import api_registry
+
+        if not api_registry.bot_allows(path):
+            from fastapi.responses import JSONResponse
+
+            return JSONResponse(
+                {"detail": "这个接口在「接口管理」里被关掉了"}, status_code=403
+            )
+    return await call_next(request)
+
+
 app.include_router(system_router, prefix="/api/v1")
 app.include_router(sources_router, prefix="/api/v1")
 app.include_router(setup_router, prefix="/api/v1")
@@ -95,6 +112,7 @@ app.include_router(canvas_router, prefix="/api/v1")
 app.include_router(bot_router, prefix="/api/v1")
 app.include_router(aihaoke_router, prefix="/api/v1")
 app.include_router(agent_router, prefix="/api/v1")
+app.include_router(api_manage_router, prefix="/api/v1")
 
 
 @app.get("/", include_in_schema=False)

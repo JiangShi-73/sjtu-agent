@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter
 
-from .. import config
+from .. import api_registry, config
 from xinge import agent
 
 router = APIRouter(tags=["agent"])
@@ -13,15 +13,17 @@ router = APIRouter(tags=["agent"])
 @router.get("/agent/tools")
 def list_tools():
     """当前暴露给模型的所有工具。"""
+    active = api_registry.agent_enabled()
+    tools = [t for t in agent.TOOLS if t["function"]["name"] in active]
     return {
-        "count": len(agent.TOOLS),
+        "count": len(tools),
         "tools": [
             {
                 "name": t["function"]["name"],
                 "description": t["function"]["description"],
                 "parameters": t["function"]["parameters"],
             }
-            for t in agent.TOOLS
+            for t in tools
         ],
     }
 
@@ -40,4 +42,5 @@ async def agent_chat(body: dict):
         base=cfg.get("llm_base") or "",
         key=cfg.get("llm_key") or "",
         model=cfg.get("llm_model") or "",
+        tool_names=api_registry.agent_enabled(),
     )

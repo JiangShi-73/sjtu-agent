@@ -243,11 +243,19 @@ async def call_tool(name: str, args: dict[str, Any]) -> str:
 
 # ---------------- 对话循环 ----------------
 
+def enabled_tools(names: set[str] | None) -> list[dict]:
+    """按开关筛工具。names 为 None 表示全开。"""
+    if names is None:
+        return TOOLS
+    return [t for t in TOOLS if t["function"]["name"] in names]
+
+
 async def chat(
     messages: list[dict],
     base: str = "",
     key: str = "",
     model: str = "",
+    tool_names: set[str] | None = None,
 ) -> dict:
     """跑一轮带工具调用的对话。
 
@@ -266,6 +274,7 @@ async def chat(
     if not key:
         return {"reply": "还没配模型 Key。在「机器人」里填一下 API Key 就能对话了。", "steps": []}
 
+    active = enabled_tools(tool_names)
     convo: list[dict] = [{"role": "system", "content": SYSTEM_PROMPT}]
     for m in messages[-12:]:
         role = m.get("role")
@@ -280,7 +289,7 @@ async def chat(
             resp = await client.post(
                 f"{base}/chat/completions",
                 headers={"Authorization": f"Bearer {key}", "x-opencode-session": "xinge-agent"},
-                json={"model": model, "messages": convo, "tools": TOOLS, "temperature": 0.3},
+                json={"model": model, "messages": convo, "tools": active, "temperature": 0.3},
             )
             resp.raise_for_status()
             data = resp.json()

@@ -1027,6 +1027,46 @@ function addMsg(kind, text) {
   return el;
 }
 
+
+/* ---------------- 接口管理 ---------------- */
+
+async function renderApiManage() {
+  const data = await api("/api/manage");
+
+  for (const [kind, box] of [["agent", "#api-agent"], ["bot", "#api-bot"]]) {
+    const el = $(box);
+    el.innerHTML = "";
+    for (const item of data[kind] || []) {
+      const row = document.createElement("div");
+      row.className = "course-row" + (item.enabled ? "" : " off");
+
+      const cb = document.createElement("input");
+      cb.type = "checkbox";
+      cb.checked = item.enabled;
+      cb.onchange = async () => {
+        await api("/api/manage", {
+          method: "PATCH",
+          body: JSON.stringify({ kind, key: item.key, enabled: cb.checked }),
+        });
+        renderApiManage();
+      };
+
+      const name = document.createElement("div");
+      name.className = "name";
+      name.innerHTML = escapeHtml(item.name) + '<span class="id">' + escapeHtml(item.key) + "</span>";
+
+      row.append(cb, name);
+      el.appendChild(row);
+    }
+  }
+}
+
+$("#btn-api").onclick = async () => {
+  $("#api-dlg").showModal();
+  await renderApiManage();
+};
+$("#api-close").onclick = () => $("#api-dlg").close();
+
 $("#btn-agent").onclick = () => {
   $("#agent-dlg").showModal();
   if (!agentHistory.length) {

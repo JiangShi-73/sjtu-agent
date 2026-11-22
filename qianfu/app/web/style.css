@@ -200,6 +200,11 @@ button.danger { color: var(--danger); border-color: #f0c9c4; }
 .hw-item.overdue .d { color: #b6bcc6; }
 .hw-empty { color: #b6bcc6; font-size: 12px; padding: 14px 2px; text-align: center; }
 
+.api-sub {
+  font-size: 13px; color: var(--muted); font-weight: 600;
+  margin: 16px 0 8px; padding-bottom: 6px; border-bottom: 1px solid var(--line);
+}
+
 .agent-dlg { width: min(720px, 92vw); }
 .agent-log {
   height: 380px; overflow-y: auto; margin: 12px 0;
