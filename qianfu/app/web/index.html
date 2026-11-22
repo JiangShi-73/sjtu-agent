@@ -173,6 +173,22 @@
       <input id="bot-secret" type="password" placeholder="机器人密钥" />
     </div>
 
+    <details class="bot-adv">
+      <summary>模型（已配好可跳过）</summary>
+      <div class="field">
+        <label>API Key</label>
+        <input id="bot-llm-key" type="password" placeholder="留空表示不改" />
+      </div>
+      <div class="field">
+        <label>接口地址</label>
+        <input id="bot-llm-base" placeholder="https://opencode.ai/inference/go/v1" />
+      </div>
+      <div class="field">
+        <label>模型</label>
+        <input id="bot-llm-model" placeholder="deepseek-v4.1-flash" />
+      </div>
+    </details>
+
     <div class="dlg-actions">
       <button id="bot-save" class="primary">保存并重启</button>
       <button id="bot-close">关闭</button>

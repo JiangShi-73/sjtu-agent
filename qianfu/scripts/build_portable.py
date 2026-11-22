@@ -15,6 +15,7 @@
 
 from __future__ import annotations
 
+import json
 import shutil
 import subprocess
 import sys
@@ -106,6 +107,26 @@ def install_packages(python: Path, dest: Path) -> None:
         raise SystemExit("依赖安装失败")
 
 
+def sanitize_config(dest: Path) -> None:
+    """清掉打包机上的 QQ 凭据和模型 key，别人拿到不会连到你的机器人。
+
+    Args:
+        dest: 打包输出目录。
+    """
+    cfg_path = dest / "astrbot" / "data" / "cmd_config.json"
+    if not cfg_path.exists():
+        return
+
+    data = json.loads(cfg_path.read_text(encoding="utf-8-sig"))
+    data["platform"] = []
+    data["provider"] = []
+    data["provider_sources"] = []
+    cfg_path.write_text(
+        json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8-sig"
+    )
+    log("已清空打包内的 QQ 配置和模型 key")
+
+
 def write_launcher(dest: Path) -> None:
     bat = "\r\n".join(
         [
@@ -157,6 +178,7 @@ def main() -> None:
         for dll in sys32.glob("*.dll"):
             shutil.copy2(dll, py.parent / dll.name)
 
+    sanitize_config(OUT)
     write_launcher(OUT)
 
     size = sum(f.stat().st_size for f in OUT.rglob("*") if f.is_file()) / 1024 / 1024

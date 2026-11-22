@@ -200,6 +200,9 @@ button.danger { color: var(--danger); border-color: #f0c9c4; }
 .hw-item.overdue .d { color: #b6bcc6; }
 .hw-empty { color: #b6bcc6; font-size: 12px; padding: 14px 2px; text-align: center; }
 
+.bot-adv { margin: 8px 0 4px; font-size: 13px; }
+.bot-adv summary { cursor: pointer; color: var(--muted); margin-bottom: 8px; }
+
 .bot-status {
   display: grid; grid-template-columns: 1fr auto; gap: 6px 12px;
   font-size: 13px; margin: 4px 0 16px;

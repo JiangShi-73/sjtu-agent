@@ -1024,6 +1024,22 @@ $("#bot-save").onclick = async () => {
     return;
   }
 
+  const llmKey = $("#bot-llm-key").value.trim();
+  if (llmKey) {
+    const m = await api("/setup/model", {
+      method: "POST",
+      body: JSON.stringify({
+        key: llmKey,
+        base: $("#bot-llm-base").value.trim(),
+        model: $("#bot-llm-model").value.trim(),
+      }),
+    });
+    if (!m.ok) {
+      $("#bot-msg").textContent = "模型配置失败：" + (m.error || "");
+      return;
+    }
+  }
+
   $("#bot-msg").textContent = "保存中，AstrBot 正在重启，大约 30 秒…";
   try {
     const r = await api("/setup/qq", {
