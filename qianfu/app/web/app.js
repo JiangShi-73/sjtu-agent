@@ -42,7 +42,15 @@ async function loadBoards() {
   const all = document.createElement("button");
   all.className = "board" + (state.board === null ? " active" : "");
   all.textContent = "全部";
-  all.onclick = () => { showFeed(); state.board = null; state.college = null; loadBoards(); loadItems(); };
+  all.onclick = () => {
+    showFeed();
+    state.board = null;
+    state.college = null;
+    $("#college-bar").hidden = true;
+    $("#college-bar").innerHTML = "";
+    loadBoards();
+    loadItems();
+  };
   nav.appendChild(all);
 
   for (const b of data) {
@@ -50,7 +58,15 @@ async function loadBoards() {
     el.className = "board" + (state.board === b.key ? " active" : "");
     el.innerHTML = "<span>" + escapeHtml(b.name) + "</span>" +
       (b.unread ? '<span class="badge">' + b.unread + "</span>" : "");
-    el.onclick = () => { showFeed(); state.board = b.key; state.college = null; loadBoards(); loadItems(); };
+    el.onclick = () => {
+    showFeed();
+    state.board = b.key;
+    state.college = null;
+    $("#college-bar").hidden = b.key !== "college";
+    $("#college-bar").innerHTML = "";
+    loadBoards();
+    loadItems();
+  };
     nav.appendChild(el);
   }
   const cur = data.find((b) => b.key === state.board);
@@ -163,6 +179,12 @@ async function renderCollegeBar() {
   bar.hidden = false;
 
   const { colleges } = await api("/colleges");
+
+  // 请求期间用户可能切走了，回来就不要再显示
+  if (state.board !== "college") {
+    bar.hidden = true;
+    return;
+  }
   const list = colleges.filter((c) => c.count > 0 || c.enabled);
 
   bar.innerHTML = "";
@@ -729,10 +751,11 @@ async function renderShuiyuan() {
 }
 
 $("#sy-login").onclick = async () => {
-  $("#sy-status").textContent = "浏览器已打开，请完成 jAccount 登录…";
+  $("#sy-status").textContent = "正在用 jAccount 登录…";
   try {
     const r = await api("/shuiyuan/login", { method: "POST" });
-    $("#sy-status").textContent = r.ok ? "登录成功" : "登录失败";
+    $("#sy-status").textContent =
+      r.method === "jaccount" ? "已用 jAccount 登录" : "登录成功";
     await renderShuiyuan();
     await api("/sources/shuiyuan/fetch", { method: "POST" });
     loadBoards();

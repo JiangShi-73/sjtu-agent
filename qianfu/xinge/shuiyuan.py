@@ -55,8 +55,52 @@ def logged_in() -> bool:
     return bool(cookies.get("_t"))
 
 
+def jaccount_cookies() -> dict:
+    """从 Canvas 那次扫码登录留下的 jAccount 会话里取 cookie。"""
+    path = Path(os.path.expanduser("~")) / ".xinge" / "session.json"
+    if not path.exists():
+        return {}
+    try:
+        records = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+
+    jar: dict[str, str] = {}
+    for c in records:
+        if isinstance(c, dict) and c.get("domain") == "jaccount.sjtu.edu.cn":
+            jar[c.get("name")] = c.get("value")
+    return jar
+
+
+def login_with_jaccount() -> dict:
+    """用已有的 jAccount 会话走 SSO，不需要用户再输一次密码。
+
+    流程：带着 jaccount.sjtu.edu.cn 的 cookie 请求水源首页，
+    jAccount 直接放行，水源回写 _t 会话 cookie。
+    """
+    jar = jaccount_cookies()
+    if not jar.get("JAAuthCookie"):
+        return {"ok": False, "error": "还没有 jAccount 登录态，先在信鸽里扫码登录一次"}
+
+    with httpx.Client(headers={"User-Agent": UA}, timeout=30, follow_redirects=True) as client:
+        for name, value in jar.items():
+            client.cookies.set(name, value, domain="jaccount.sjtu.edu.cn")
+
+        resp = client.get(ORIGIN + "/")
+        cookies = {c.name: c.value for c in client.cookies.jar}
+        if not cookies.get("_t"):
+            return {"ok": False, "error": f"SSO 没拿到会话（HTTP {resp.status_code}）"}
+
+    save_cookies({"_t": cookies["_t"], "_forum_session": cookies.get("_forum_session", "")})
+    return {"ok": True, "method": "jaccount"}
+
+
 def login(timeout: int = 300) -> dict:
-    """开一个真浏览器让用户 jAccount 登录，登录完把 cookie 抄下来。"""
+    """先试 jAccount SSO；不行再开浏览器让用户手动登录。"""
+    result = login_with_jaccount()
+    if result.get("ok"):
+        return result
+
     from playwright.sync_api import sync_playwright
 
     from .browser import launch
