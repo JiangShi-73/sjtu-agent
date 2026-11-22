@@ -17,6 +17,7 @@ KNOWN = {
     "rss": "RSS 订阅",
     "aihaoke": "知途好课",
     "college": "学院公告",
+    "shuiyuan": "水源社区",
 }
 
 

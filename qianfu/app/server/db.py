@@ -82,6 +82,7 @@ DEFAULT_BOARDS = [
     ("mooc", "慕课", 40),
     ("zhitu", "知途好课", 60),
     ("college", "学院公告", 70),
+    ("shuiyuan", "水源社区", 75),
     ("custom", "自定义", 90),
 ]
 
@@ -94,6 +95,7 @@ SOURCE_BOARD = {
     "rss": "custom",          # 单条订阅可以在 extra.board 里覆盖
     "aihaoke": "zhitu",
     "college": "college",
+    "shuiyuan": "shuiyuan",
 }
 
 

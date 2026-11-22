@@ -712,9 +712,35 @@ function openActivity(it) {
 async function openFeeds() {
   await renderFeeds();
   await renderColleges();
+  await renderShuiyuan();
   await renderCourses();
   $("#feeds-dlg").showModal();
 }
+
+
+async function renderShuiyuan() {
+  try {
+    const s = await api("/shuiyuan/status");
+    $("#sy-status").textContent = s.logged_in ? "已登录" : "未登录";
+    $("#sy-login").textContent = s.logged_in ? "重新登录" : "登录水源";
+  } catch (e) {
+    $("#sy-status").textContent = "读不到状态";
+  }
+}
+
+$("#sy-login").onclick = async () => {
+  $("#sy-status").textContent = "浏览器已打开，请完成 jAccount 登录…";
+  try {
+    const r = await api("/shuiyuan/login", { method: "POST" });
+    $("#sy-status").textContent = r.ok ? "登录成功" : "登录失败";
+    await renderShuiyuan();
+    await api("/sources/shuiyuan/fetch", { method: "POST" });
+    loadBoards();
+    loadItems();
+  } catch (e) {
+    $("#sy-status").textContent = "登录失败：" + e;
+  }
+};
 
 async function renderColleges() {
   const { colleges } = await api("/colleges");

@@ -68,7 +68,7 @@ async def fetch_one(key: str) -> dict:
 async def fetch_all(keys: list[str] | None = None) -> list[dict]:
     keys = keys or [
         "canvas", "cnmooc", "pe", "second_classroom",
-        "aihaoke", "rss", "college",
+        "aihaoke", "rss", "college", "shuiyuan",
     ]
     # 各源互不依赖，并发跑：学院公告要开浏览器，串行会拖到一分钟以上
     return list(await asyncio.gather(*(fetch_one(k) for k in keys)))

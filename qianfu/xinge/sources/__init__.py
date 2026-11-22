@@ -13,6 +13,7 @@ from .college import CollegeSource
 from .cnmooc import CnmoocSource
 from .pe import PeSource
 from .rss import RssSource
+from .shuiyuan import ShuiyuanSource
 from .second_classroom import SecondClassroomSource
 
 __all__ = [
@@ -22,6 +23,7 @@ __all__ = [
     "AihaokeSource",
     "CollegeSource",
     "RssSource",
+    "ShuiyuanSource",
     "activity_index",
     "detail_url",
     "SecondClassroomSource",
@@ -36,6 +38,7 @@ _FACTORIES = {
     "second_classroom": lambda s, **kw: SecondClassroomSource(s, **kw),
     "rss": lambda s, **kw: RssSource(),
     "college": lambda s, **kw: CollegeSource(),
+    "shuiyuan": lambda s, **kw: ShuiyuanSource(),
     "aihaoke": lambda s, **kw: AihaokeSource(s),
 }
 

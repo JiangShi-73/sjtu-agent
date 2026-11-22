@@ -154,12 +154,188 @@ TOOLS: list[dict] = [
     {
         "type": "function",
         "function": {
+            "name": "shuiyuan_latest",
+            "description": "看水源社区（SJTU BBS）的最新话题。",
+            "parameters": {
+                "type": "object",
+                "properties": {"limit": {"type": "integer", "description": "默认 15"}},
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "shuiyuan_search",
+            "description": "在水源社区里搜话题，比如「选课」「绩点」「宿舍」。",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "q": {"type": "string", "description": "搜索词"},
+                    "limit": {"type": "integer", "description": "默认 10"},
+                },
+                "required": ["q"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "shuiyuan_read_topic",
+            "description": "读水源某个话题的正文和回复。",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "topic_id": {"type": "integer", "description": "话题 id"},
+                    "posts": {"type": "integer", "description": "读几层，默认 15"},
+                },
+                "required": ["topic_id"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "shuiyuan_categories",
+            "description": "列出水源的所有分类。",
+            "parameters": {"type": "object", "properties": {}},
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "list_items",
+            "description": "按板块列信息条目，可指定学院或只看未读。",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "board": {
+                        "type": "string",
+                        "description": "course/mooc/lab/event/zhitu/college/shuiyuan/custom",
+                    },
+                    "college": {"type": "string", "description": "学院名，如 药学院"},
+                    "unread": {"type": "boolean", "description": "只看未读"},
+                    "limit": {"type": "integer", "description": "默认 20"},
+                },
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_item_detail",
+            "description": "看某条信息的完整内容（摘要、链接、时间）。",
+            "parameters": {
+                "type": "object",
+                "properties": {"item_id": {"type": "integer", "description": "条目 id"}},
+                "required": ["item_id"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "mark_item_read",
+            "description": "把某条信息标记为已读。",
+            "parameters": {
+                "type": "object",
+                "properties": {"item_id": {"type": "integer", "description": "条目 id"}},
+                "required": ["item_id"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "add_to_calendar",
+            "description": "把某条信息加进日程表。",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "item_id": {"type": "integer", "description": "条目 id"},
+                    "kind": {"type": "string", "description": "start 开始时间 / signup 报名截止"},
+                },
+                "required": ["item_id"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "list_events",
+            "description": "看日程表里某段时间的事件。",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "start": {"type": "string", "description": "YYYY-MM-DD"},
+                    "end": {"type": "string", "description": "YYYY-MM-DD"},
+                },
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "create_event",
+            "description": "新建一个日程事件。",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "title": {"type": "string", "description": "标题"},
+                    "event_date": {"type": "string", "description": "YYYY-MM-DD"},
+                    "start_time": {"type": "string", "description": "HH:MM"},
+                    "end_time": {"type": "string", "description": "HH:MM"},
+                    "location": {"type": "string", "description": "地点"},
+                },
+                "required": ["title", "event_date"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "list_cnmooc_courses",
+            "description": "看已订阅的慕课课程。",
+            "parameters": {"type": "object", "properties": {}},
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "list_feeds",
+            "description": "看 RSS 订阅列表。",
+            "parameters": {"type": "object", "properties": {}},
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_mail_detail",
+            "description": "看某封邮件的正文。",
+            "parameters": {
+                "type": "object",
+                "properties": {"index": {"type": "integer", "description": "邮件序号，从 1 开始"}},
+                "required": ["index"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "diagnose",
+            "description": "体检：各信息源能不能正常抓取。",
+            "parameters": {"type": "object", "properties": {}},
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "fetch_all",
             "description": "触发一次全量抓取，把最新的作业和公告拉下来。用户说「刷新」时用。",
             "parameters": {"type": "object", "properties": {}},
         },
     },
 ]
+
 
 
 # ---------------- 工具执行 ----------------
@@ -230,6 +406,155 @@ async def call_tool(name: str, args: dict[str, Any]) -> str:
                 ).json()
                 return _text(data, "该学院暂无公告")
 
+            if name == "shuiyuan_latest":
+                data = (
+                    await client.get(f"{API}/shuiyuan/latest", params={"limit": args.get("limit", 15)})
+                ).json()
+                topics = data.get("topics") or []
+                if not topics:
+                    return "水源没有新话题，或者还没登录"
+                return "\n".join(
+                    f'- [{t["id"]}] {t["title"]}（{t["posts_count"]} 楼，{t["last_posted_at"]}）'
+                    for t in topics
+                )
+
+            if name == "shuiyuan_search":
+                data = (
+                    await client.get(
+                        f"{API}/shuiyuan/search",
+                        params={"q": args.get("q", ""), "limit": args.get("limit", 10)},
+                    )
+                ).json()
+                topics = data.get("topics") or []
+                if not topics:
+                    return f'水源没搜到「{args.get("q", "")}」'
+                return "\n".join(f'- [{t["id"]}] {t["title"]}' for t in topics)
+
+            if name == "shuiyuan_read_topic":
+                data = (
+                    await client.get(
+                        f"{API}/shuiyuan/topic/{args.get('topic_id')}",
+                        params={"posts": args.get("posts", 15)},
+                    )
+                ).json()
+                lines = [f'# {data.get("title")}', str(data.get("url") or "")]
+                for p in data.get("posts") or []:
+                    lines.append(
+                        "\n{floor} 楼 {user}（{at}）：\n{text}".format(
+                            floor=p["floor"], user=p["user"], at=p["at"], text=p["text"]
+                        )
+                    )
+                return "\n".join(lines)[:4000]
+
+            if name == "shuiyuan_categories":
+                data = (await client.get(f"{API}/shuiyuan/categories")).json()
+                cats = data.get("categories") or []
+                return "\n".join(f'- {c["name"]}（{c["topics"]} 个话题）' for c in cats)
+
+            if name == "list_items":
+                params = {"limit": args.get("limit", 20)}
+                if args.get("board"):
+                    params["board"] = args["board"]
+                if args.get("college"):
+                    params["college"] = args["college"]
+                if args.get("unread"):
+                    params["unread"] = "true"
+                data = (await client.get(f"{API}/items", params=params)).json()
+                items = data.get("items") or []
+                if not items:
+                    return "没有符合条件的条目"
+                return "\n".join(
+                    f'[{it["id"]}] ({it["category"]}) {it["title"]}' for it in items[:30]
+                )
+
+            if name == "get_item_detail":
+                data = (await client.get(f"{API}/items", params={"limit": 2000})).json()
+                for it in data.get("items") or []:
+                    if it["id"] == args.get("item_id"):
+                        parts = [
+                            f'标题：{it["title"]}',
+                            f'板块：{it["category"]}',
+                            f'时间：{it.get("deadline") or it.get("published") or ""}',
+                            f'链接：{it.get("url") or ""}',
+                            f'摘要：{it.get("summary") or ""}',
+                        ]
+                        return "\n".join(parts)
+                return "找不到这条"
+
+            if name == "mark_item_read":
+                resp = await client.post(f"{API}/items/{args.get('item_id')}/read")
+                return "已标记已读" if resp.status_code < 400 else f"失败：{resp.text[:80]}"
+
+            if name == "add_to_calendar":
+                resp = await client.post(
+                    f"{API}/items/{args.get('item_id')}/schedule",
+                    params={"kind": args.get("kind", "start")},
+                )
+                return "已加入日程" if resp.status_code < 400 else f"失败：{resp.text[:80]}"
+
+            if name == "list_events":
+                data = (
+                    await client.get(
+                        f"{API}/events",
+                        params={
+                            "start": args.get("start") or "2026-01-01",
+                            "end": args.get("end") or "2027-12-31",
+                        },
+                    )
+                ).json()
+                events = data if isinstance(data, list) else (data.get("events") or [])
+                if not events:
+                    return "这段时间没有日程"
+                return "\n".join(
+                    f'- {e.get("event_date")} {e.get("start_time") or ""} {e.get("title")}'
+                    for e in events[:30]
+                )
+
+            if name == "create_event":
+                resp = await client.post(
+                    f"{API}/events",
+                    json={
+                        "title": args.get("title"),
+                        "event_date": args.get("event_date"),
+                        "start_time": args.get("start_time") or "",
+                        "end_time": args.get("end_time") or "",
+                        "location": args.get("location") or "",
+                        "source": "agent",
+                    },
+                )
+                return "已创建日程" if resp.status_code < 400 else f"失败：{resp.text[:80]}"
+
+            if name == "list_cnmooc_courses":
+                data = (await client.get(f"{API}/cnmooc/courses")).json()
+                courses = data.get("courses") or []
+                return "\n".join(f'- {c.get("name")}' for c in courses) or "还没有订阅慕课"
+
+            if name == "list_feeds":
+                data = (await client.get(f"{API}/feeds")).json()
+                feeds = data.get("feeds") or []
+                return "\n".join(f'- {f.get("name")} {f.get("url")}' for f in feeds) or "还没有 RSS 订阅"
+
+            if name == "get_mail_detail":
+                data = (await client.get(f"{API}/mail/list", params={"limit": 60})).json()
+                mails = data.get("mails") or []
+                idx = int(args.get("index", 1)) - 1
+                if not (0 <= idx < len(mails)):
+                    return "没有这封邮件"
+                m = mails[idx]
+                return "\n".join(
+                    [
+                        f'发件人：{m.get("from")}',
+                        f'主题：{m.get("subject")}',
+                        f'时间：{m.get("date")}',
+                        "",
+                        (m.get("preview") or "")[:1500],
+                    ]
+                )
+
+            if name == "diagnose":
+                data = (await client.get(f"{API}/diagnose")).json()
+                return json.dumps(data, ensure_ascii=False)[:2000]
+
             if name == "fetch_all":
                 data = (await client.post(f"{API}/sources/fetch-all")).json()
                 results = data.get("results") or data or []
@@ -264,6 +589,7 @@ async def chat(
         base: 模型接口地址，空则用默认。
         key: 模型 API Key。
         model: 模型名。
+        tool_names: 允许调用的工具集合，None 表示全部。
 
     Returns:
         {"reply": 最终回答, "steps": [工具调用记录], "usage": {...}}

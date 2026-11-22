@@ -34,6 +34,7 @@ from .routers import (
     items_router,
     settings_router,
     setup_router,
+    shuiyuan_router,
     sources_router,
     system_router,
 )
@@ -102,6 +103,7 @@ async def bot_guard(request, call_next):
 app.include_router(system_router, prefix="/api/v1")
 app.include_router(sources_router, prefix="/api/v1")
 app.include_router(setup_router, prefix="/api/v1")
+app.include_router(shuiyuan_router, prefix="/api/v1")
 app.include_router(items_router, prefix="/api/v1")
 app.include_router(settings_router, prefix="/api/v1")
 app.include_router(events_router, prefix="/api/v1")

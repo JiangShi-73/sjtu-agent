@@ -25,6 +25,20 @@ AGENT_TOOLS: dict[str, str] = {
     "list_college_notices": "某学院公告",
     "list_mail": "最近邮件",
     "fetch_all": "触发全量抓取",
+    "shuiyuan_latest": "水源最新话题",
+    "shuiyuan_search": "水源搜索",
+    "shuiyuan_read_topic": "水源话题正文",
+    "shuiyuan_categories": "水源分类",
+    "list_items": "按板块列条目",
+    "get_item_detail": "条目详情",
+    "mark_item_read": "标记已读",
+    "add_to_calendar": "加入日程",
+    "list_events": "看日程",
+    "create_event": "新建日程",
+    "list_cnmooc_courses": "已订阅慕课",
+    "list_feeds": "RSS 订阅列表",
+    "get_mail_detail": "邮件正文",
+    "diagnose": "体检",
 }
 
 # 路径前缀 → 中文说明（机器人用）
