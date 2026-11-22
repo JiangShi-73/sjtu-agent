@@ -980,6 +980,67 @@ $("#btn-diag").onclick = diagnose;
 $("#btn-feeds").onclick = openFeeds;
 $("#feed-add-btn").onclick = addFeed;
 $("#course-add-btn").onclick = addCourse;
+
+async function openBotDialog() {
+  $("#bot-dlg").showModal();
+  $("#bot-msg").textContent = "";
+  await refreshBotStatus();
+}
+
+async function refreshBotStatus() {
+  const box = $("#bot-status");
+  box.innerHTML = "<div>读取中…</div>";
+
+  let s;
+  try {
+    s = await api("/setup/status");
+  } catch (e) {
+    box.innerHTML = '<div class="no">读不到状态</div>';
+    return;
+  }
+
+  const row = (label, ok, text) =>
+    "<div>" + label + '</div><div class="' + (ok ? "ok" : "no") + '">' + text + "</div>";
+
+  box.innerHTML = [
+    row("AstrBot 安装", s.installed, s.installed ? "已安装" : "未安装"),
+    row("AstrBot 运行", s.running, s.running ? "运行中" : "未运行"),
+    row("模型", s.model_ready, s.model || "未配置"),
+    row("QQ 机器人", s.qq_ready, s.qq_appid || "未填写"),
+    row("信鸽插件", s.plugin_ready, s.plugin_ready ? "已就绪" : "缺失"),
+  ].join("");
+
+  if (s.qq_appid) $("#bot-appid").value = s.qq_appid;
+}
+
+$("#btn-bot").onclick = openBotDialog;
+$("#bot-close").onclick = () => $("#bot-dlg").close();
+
+$("#bot-save").onclick = async () => {
+  const appid = $("#bot-appid").value.trim();
+  const secret = $("#bot-secret").value.trim();
+  if (!appid || !secret) {
+    $("#bot-msg").textContent = "AppID 和 Secret 都要填";
+    return;
+  }
+
+  $("#bot-msg").textContent = "保存中，AstrBot 正在重启，大约 30 秒…";
+  try {
+    const r = await api("/setup/qq", {
+      method: "POST",
+      body: JSON.stringify({ appid, secret }),
+    });
+    if (!r.ok) {
+      $("#bot-msg").textContent = "失败：" + (r.error || "未知错误");
+      return;
+    }
+    $("#bot-msg").textContent = "已保存，重启完成。去 QQ 里发 /信鸽 试试。";
+    await refreshBotStatus();
+  } catch (e) {
+    $("#bot-msg").textContent = "失败：" + e;
+  }
+};
+
 $("#act-close").onclick = () => $("#act-dlg").close();
 $("#nav-mail").onclick = showMail;
 $("#mail-refresh").onclick = loadMailView;

@@ -20,6 +20,7 @@
     <div class="sidebar-foot">
       <button id="btn-fetch" class="primary">抓取全部</button>
       <div class="btn-row">
+        <button id="btn-bot">机器人</button>
         <button id="btn-feeds">订阅</button>
         <button id="btn-diag">诊断</button>
       </div>
@@ -152,6 +153,31 @@
         <button type="submit" class="primary">保存</button>
       </div>
     </form>
+  </dialog>
+
+  <dialog id="bot-dlg">
+    <h2>QQ 机器人</h2>
+    <p class="hint">
+      只需要在这里填 AppID 和 Secret，模型、平台、插件都会自动配好。
+      还没注册的话去 <a href="https://q.qq.com" target="_blank">q.qq.com</a> 创建机器人。
+    </p>
+
+    <div id="bot-status" class="bot-status"></div>
+
+    <div class="field">
+      <label>AppID</label>
+      <input id="bot-appid" placeholder="一串数字，例如 1906503071" />
+    </div>
+    <div class="field">
+      <label>Secret</label>
+      <input id="bot-secret" type="password" placeholder="机器人密钥" />
+    </div>
+
+    <div class="dlg-actions">
+      <button id="bot-save" class="primary">保存并重启</button>
+      <button id="bot-close">关闭</button>
+    </div>
+    <div id="bot-msg" class="hint"></div>
   </dialog>
 
   <dialog id="feeds-dlg">

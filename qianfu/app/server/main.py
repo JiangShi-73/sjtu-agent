@@ -31,6 +31,7 @@ from .routers import (
     events_router,
     items_router,
     settings_router,
+    setup_router,
     sources_router,
     system_router,
 )
@@ -60,6 +61,15 @@ async def lifespan(app: FastAPI):
     setup_logging()
     db.init()
     logging.getLogger("xinge.app").info("服务启动，数据库 %s", db.DB_PATH)
+
+    # AstrBot 装了就在后台拉起来，失败不影响信鸽本身
+    try:
+        from . import astrbot
+
+        astrbot.bootstrap()
+    except Exception as exc:                      # noqa: BLE001
+        logging.getLogger("xinge.app").warning("AstrBot 没起来：%s", exc)
+
     yield
     logging.getLogger("xinge.app").info("服务关闭")
 
@@ -73,6 +83,7 @@ app = FastAPI(
 
 app.include_router(system_router, prefix="/api/v1")
 app.include_router(sources_router, prefix="/api/v1")
+app.include_router(setup_router, prefix="/api/v1")
 app.include_router(items_router, prefix="/api/v1")
 app.include_router(settings_router, prefix="/api/v1")
 app.include_router(events_router, prefix="/api/v1")

@@ -200,6 +200,20 @@ button.danger { color: var(--danger); border-color: #f0c9c4; }
 .hw-item.overdue .d { color: #b6bcc6; }
 .hw-empty { color: #b6bcc6; font-size: 12px; padding: 14px 2px; text-align: center; }
 
+.bot-status {
+  display: grid; grid-template-columns: 1fr auto; gap: 6px 12px;
+  font-size: 13px; margin: 4px 0 16px;
+  padding: 12px; border-radius: 10px; background: var(--panel);
+  border: 1px solid var(--line);
+}
+.bot-status .ok { color: #1a9c5b; font-weight: 600; }
+.bot-status .no { color: #c94a4a; font-weight: 600; }
+.field { margin-bottom: 12px; }
+.field label {
+  display: block; font-size: 12px; color: var(--muted); margin-bottom: 4px;
+}
+.field input { width: 100%; }
+
 .college-bar {
   display: flex; flex-wrap: wrap; gap: 6px;
   padding: 10px 16px 12px;
