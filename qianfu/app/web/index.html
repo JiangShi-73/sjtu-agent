@@ -18,7 +18,8 @@
       <div id="boards" class="boards-inner"></div>
     </nav>
     <div class="sidebar-foot">
-      <button id="btn-fetch" class="primary">抓取全部</button>
+      <button id="btn-agent" class="primary">问助手</button>
+      <button id="btn-fetch">抓取全部</button>
       <div class="btn-row">
         <button id="btn-bot">机器人</button>
         <button id="btn-feeds">订阅</button>
@@ -153,6 +154,19 @@
         <button type="submit" class="primary">保存</button>
       </div>
     </form>
+  </dialog>
+
+  <dialog id="agent-dlg" class="agent-dlg">
+    <h2>问助手</h2>
+    <p class="hint">它会自己调接口去查，不用你告诉它去哪儿找。</p>
+    <div id="agent-log" class="agent-log"></div>
+    <div class="agent-input">
+      <input id="agent-text" placeholder="比如：这周有什么要交的？" />
+      <button id="agent-send" class="primary">发送</button>
+    </div>
+    <div class="dlg-actions">
+      <button id="agent-close">关闭</button>
+    </div>
   </dialog>
 
   <dialog id="bot-dlg">

@@ -1013,6 +1013,73 @@ async function refreshBotStatus() {
   if (s.qq_appid) $("#bot-appid").value = s.qq_appid;
 }
 
+
+/* ---------------- 问助手 ---------------- */
+
+const agentHistory = [];
+
+function addMsg(kind, text) {
+  const el = document.createElement("div");
+  el.className = "msg " + kind;
+  el.textContent = text;
+  $("#agent-log").appendChild(el);
+  $("#agent-log").scrollTop = $("#agent-log").scrollHeight;
+  return el;
+}
+
+$("#btn-agent").onclick = () => {
+  $("#agent-dlg").showModal();
+  if (!agentHistory.length) {
+    addMsg("ai", "你好，我是信鸽助手。可以问我：\n· 这周有什么要交的？\n· 学院公告里有奖学金吗？\n· 第二课堂有什么活动？");
+  }
+  $("#agent-text").focus();
+};
+
+$("#agent-close").onclick = () => $("#agent-dlg").close();
+
+async function sendAgent() {
+  const input = $("#agent-text");
+  const text = input.value.trim();
+  if (!text) return;
+
+  input.value = "";
+  addMsg("user", text);
+  agentHistory.push({ role: "user", content: text });
+
+  const pending = addMsg("ai", "思考中…");
+  $("#agent-send").disabled = true;
+
+  try {
+    const r = await api("/agent/chat", {
+      method: "POST",
+      body: JSON.stringify({ messages: agentHistory.slice(-12) }),
+    });
+
+    pending.remove();
+
+    for (const step of r.steps || []) {
+      const arg = Object.keys(step.args || {}).length
+        ? " " + JSON.stringify(step.args)
+        : "";
+      addMsg("tool", "→ " + step.tool + arg);
+    }
+
+    addMsg("ai", r.reply || "（没有回复）");
+    agentHistory.push({ role: "assistant", content: r.reply || "" });
+  } catch (e) {
+    pending.remove();
+    addMsg("ai", "出错了：" + e);
+  } finally {
+    $("#agent-send").disabled = false;
+    input.focus();
+  }
+}
+
+$("#agent-send").onclick = sendAgent;
+$("#agent-text").onkeydown = (e) => {
+  if (e.key === "Enter") sendAgent();
+};
+
 $("#btn-bot").onclick = openBotDialog;
 $("#bot-close").onclick = () => $("#bot-dlg").close();
 
