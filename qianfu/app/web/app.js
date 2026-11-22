@@ -151,14 +151,21 @@ async function loadItems() {
   box.innerHTML = "";
   $("#count").textContent = items.length ? items.length + " 条" : "";
 
+  // 学院公告：顶部一排学院，点哪个看哪个。
+  // 注意要放在「没有内容」的早退之前，否则空板块会留着上一条板块的筛选条。
+  const isCollege = state.board === "college";
+  $("#college-bar").hidden = !isCollege;
+
+  if (isCollege) {
+    await renderCollegeBar();
+  }
+
   if (!items.length) {
     box.innerHTML = '<div class="empty">还没有内容，点左下角「抓取全部」试试</div>';
     return;
   }
 
-  // 学院公告：顶部一排学院，点哪个看哪个
-  if (state.board === "college") {
-    await renderCollegeBar();
+  if (isCollege) {
     if (state.college) {
       for (const it of items) box.appendChild(renderItemCard(it));
     } else {
@@ -167,8 +174,6 @@ async function loadItems() {
     return;
   }
 
-  $("#college-bar").hidden = true;
-
   for (const it of items) {
     box.appendChild(renderItemCard(it));
   }
@@ -176,8 +181,6 @@ async function loadItems() {
 
 async function renderCollegeBar() {
   const bar = $("#college-bar");
-  bar.hidden = false;
-
   const { colleges } = await api("/colleges");
 
   // 请求期间用户可能切走了，回来就不要再显示
@@ -185,6 +188,7 @@ async function renderCollegeBar() {
     bar.hidden = true;
     return;
   }
+  bar.hidden = false;
   const list = colleges.filter((c) => c.count > 0 || c.enabled);
 
   bar.innerHTML = "";
