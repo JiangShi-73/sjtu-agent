@@ -97,6 +97,15 @@ def sync_plugin() -> None:
     log(f"插件已同步到 {PLUGIN_DST.relative_to(ROOT)}")
 
 
+def probe(url: str) -> bool:
+    """已经起来了？"""
+    try:
+        with urllib.request.urlopen(url, timeout=3):
+            return True
+    except (urllib.error.URLError, OSError):
+        return False
+
+
 def wait_http(url: str, timeout: float = 90) -> bool:
     deadline = time.time() + timeout
     while time.time() < deadline:
@@ -132,15 +141,19 @@ def main() -> None:
     signal.signal(signal.SIGINT, shutdown)
     signal.signal(signal.SIGTERM, shutdown)
 
-    log(f"启动信鸽后端 :{args.port}")
-    backend = subprocess.Popen(
-        [sys.executable, "-m", "app.server", "--port", str(args.port)], cwd=ROOT
-    )
-    children.append(backend)
+    backend: subprocess.Popen | None = None
+    if probe(f"http://127.0.0.1:{args.port}/api/v1/health"):
+        log(f"信鸽后端已在 :{args.port} 运行，直接复用")
+    else:
+        log(f"启动信鸽后端 :{args.port}")
+        backend = subprocess.Popen(
+            [sys.executable, "-m", "app.server", "--port", str(args.port)], cwd=ROOT
+        )
+        children.append(backend)
 
-    if not wait_http(f"http://127.0.0.1:{args.port}/api/v1/health"):
-        log("后端没起来，退出")
-        shutdown()
+        if not wait_http(f"http://127.0.0.1:{args.port}/api/v1/health"):
+            log(f"后端没起来。端口 {args.port} 可能被别的程序占了")
+            shutdown()
 
     log(f"信鸽就绪  http://127.0.0.1:{args.port}/static/index.html")
 
@@ -154,18 +167,30 @@ def main() -> None:
     py = ensure_venv()
     sync_plugin()
 
-    log("启动 AstrBot…")
-    astrbot = subprocess.Popen([str(py), "main.py"], cwd=ASTRBOT_DIR)
-    children.append(astrbot)
+    if probe(f"http://127.0.0.1:{args.dashboard_port}/"):
+        log(f"AstrBot 已在 :{args.dashboard_port} 运行，直接复用")
+        astrbot = None
+    else:
+        log("启动 AstrBot…")
+        astrbot = subprocess.Popen([str(py), "main.py"], cwd=ASTRBOT_DIR)
+        children.append(astrbot)
 
     # AstrBot 的面板端口写在自己的 data/cmd_config.json 里，默认 6185
     log(f"AstrBot 面板  http://127.0.0.1:{args.dashboard_port}（端口在 AstrBot 配置里改）")
     log("按 Ctrl+C 全部退出")
 
-    try:
-        backend.wait()
-    finally:
-        shutdown()
+    if backend is None:
+        # 复用了已有实例，没东西可等，保持前台等 Ctrl+C
+        try:
+            while True:
+                time.sleep(3600)
+        except KeyboardInterrupt:
+            shutdown()
+    else:
+        try:
+            backend.wait()
+        finally:
+            shutdown()
 
 
 if __name__ == "__main__":
