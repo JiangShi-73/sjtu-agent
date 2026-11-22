@@ -1,0 +1,6 @@
+/dist/
+/releases/
+/PathFinder Server/
+/.env*
+/node_modules/
+/.pathfinder-data/

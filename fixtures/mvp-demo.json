@@ -1,0 +1,201 @@
+{
+  "fixtureNotice": "所有学生、发布方和机会均为虚构演示样例。日期和门槛不代表实际招生或招聘要求。",
+  "referenceDate": "2026-11-19",
+  "timeZone": "Asia/Shanghai",
+  "notices": [
+    {
+      "id": "demo-academic-survey",
+      "title": "填写本学期课程反馈问卷",
+      "publisher": "教务处",
+      "publishedDate": "2026-11-18",
+      "dueDate": "2026-11-27",
+      "url": null,
+      "demo": true
+    },
+    {
+      "id": "demo-college-talk",
+      "title": "本科生交流项目说明会",
+      "publisher": "学院",
+      "publishedDate": "2026-11-17",
+      "url": null,
+      "demo": true
+    }
+  ],
+  "options": {
+    "majorCategory": {
+      "engineering": "工科",
+      "science": "理科",
+      "business": "商科",
+      "other": "其他"
+    },
+    "studyYear": {
+      "undergrad-1": "本科一年级",
+      "undergrad-2": "本科二年级",
+      "undergrad-3": "本科三年级",
+      "undergrad-4": "本科四年级",
+      "graduate": "研究生"
+    },
+    "experienceTags": {
+      "research": "科研",
+      "competition": "竞赛",
+      "coding-project": "编程项目",
+      "internship": "实习"
+    },
+    "opportunityType": {
+      "summer-camp": "夏令营",
+      "campus-recruitment": "校招"
+    }
+  },
+  "profiles": [
+    {
+      "id": "student-research",
+      "label": "工科、有科研经历、英语成绩未填",
+      "majorCategory": "engineering",
+      "collegeId": "cs",
+      "majorId": "cs-cs",
+      "studyYear": "undergrad-3",
+      "rankPercent": 12,
+      "cet6Score": null,
+      "experienceTags": ["research"]
+    },
+    {
+      "id": "student-boundary",
+      "label": "理科、排名及英语恰好达到门槛",
+      "majorCategory": "science",
+      "collegeId": "math",
+      "majorId": "math-math",
+      "studyYear": "undergrad-3",
+      "rankPercent": 20,
+      "cet6Score": 425,
+      "experienceTags": []
+    },
+    {
+      "id": "student-intern",
+      "label": "商科、经历尚未填写",
+      "majorCategory": "business",
+      "collegeId": "acem",
+      "majorId": "acem-finance",
+      "studyYear": "undergrad-4",
+      "rankPercent": 35,
+      "cet6Score": 500,
+      "experienceTags": null
+    }
+  ],
+  "opportunities": [
+    {
+      "id": "camp-advanced-computing",
+      "type": "summer-camp",
+      "title": "先进计算夏令营",
+      "publisher": "演示计算学院",
+      "publishedDate": "2026-11-17",
+      "deadlineDate": "2026-12-12",
+      "source": {
+        "kind": "demo",
+        "url": null,
+        "excerpt": "面向工科或理科专业学生。专业排名须在前 20%（含），CET-6 成绩不少于 425 分。有科研经历者优先。申请须提交成绩单和一封推荐信，12 月 12 日截止。"
+      },
+      "requirements": [
+        {
+          "id": "camp-major",
+          "kind": "hard",
+          "label": "专业类别",
+          "field": "majorCategory",
+          "operator": "in",
+          "value": ["engineering", "science"],
+          "evidence": "面向工科或理科专业学生。"
+        },
+        {
+          "id": "camp-rank",
+          "kind": "hard",
+          "label": "专业排名",
+          "field": "rankPercent",
+          "operator": "lte",
+          "value": 20,
+          "evidence": "专业排名须在前 20%（含）"
+        },
+        {
+          "id": "camp-cet6",
+          "kind": "hard",
+          "label": "CET-6 成绩",
+          "field": "cet6Score",
+          "operator": "gte",
+          "value": 425,
+          "evidence": "CET-6 成绩不少于 425 分。"
+        },
+        {
+          "id": "camp-research",
+          "kind": "soft",
+          "label": "科研经历",
+          "field": "experienceTags",
+          "operator": "includes",
+          "value": "research",
+          "evidence": "有科研经历者优先。"
+        }
+      ],
+      "materials": [
+        { "id": "recommendation", "name": "联系老师准备推荐信", "suggestedLeadDays": 7 },
+        { "id": "transcript", "name": "办理成绩单", "suggestedLeadDays": 5 }
+      ]
+    },
+    {
+      "id": "job-data-intern",
+      "type": "campus-recruitment",
+      "title": "数据开发实习",
+      "publisher": "演示数据团队",
+      "publishedDate": "2026-11-16",
+      "deadlineDate": null,
+      "source": {
+        "kind": "demo",
+        "url": null,
+        "excerpt": "接受本科三、四年级学生及研究生。申请者须可连续实习至少 12 周，有编程项目经历者优先。请提供一份简历。截止日期待通知。"
+      },
+      "requirements": [
+        {
+          "id": "job-year",
+          "kind": "hard",
+          "label": "在读年级",
+          "field": "studyYear",
+          "operator": "in",
+          "value": ["undergrad-3", "undergrad-4", "graduate"],
+          "evidence": "接受本科三、四年级学生及研究生。"
+        },
+        {
+          "id": "job-availability",
+          "kind": "hard",
+          "label": "可实习时长",
+          "field": null,
+          "operator": "manual",
+          "value": null,
+          "evidence": "申请者须可连续实习至少 12 周"
+        },
+        {
+          "id": "job-coding",
+          "kind": "soft",
+          "label": "编程项目经历",
+          "field": "experienceTags",
+          "operator": "includes",
+          "value": "coding-project",
+          "evidence": "有编程项目经历者优先。"
+        }
+      ],
+      "materials": [
+        { "id": "resume", "name": "整理并核对简历", "suggestedLeadDays": 3 }
+      ]
+    },
+    {
+      "id": "camp-archive",
+      "type": "summer-camp",
+      "title": "交叉学科夏令营（往期）",
+      "publisher": "演示交叉学科中心",
+      "publishedDate": "2026-08-01",
+      "deadlineDate": "2026-08-20",
+      "source": {
+        "kind": "demo",
+        "url": null,
+        "excerpt": "本期报名于 8 月 20 日截止。历史公告中未给出可逐项核验的条件。"
+      },
+      "requirements": [],
+      "materials": []
+    }
+  ]
+}
