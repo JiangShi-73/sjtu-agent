@@ -1,9 +1,5 @@
 # 信鸽 SJTU —— Python 依赖
 # 装：pip install -r requirements.txt
-#
-# 只有 relay/（微信读书中继）用到下面这两条，不跑中继可以不装：
-#   opencv-python-headless
-#   numpy
 
 fastapi>=0.115,<1.0
 uvicorn>=0.30,<1.0

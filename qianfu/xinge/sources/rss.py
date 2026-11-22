@@ -1,15 +1,14 @@
 """通用 RSS / Atom 源。
 
-微信公众号没有官方开放接口，社区方案是先用 WeWe RSS 之类的工具
-把公众号转成 RSS，再由这里消费。所以这个源同时承担两件事：
+通用的 RSS / Atom 订阅源。任何能输出 RSS 的服务都能接进来。
 
   1. 接任意 RSS（博客、新闻、公告）
-  2. 作为公众号的落地通道
+  2. 作为第三方服务的落地通道
 
 订阅列表放在 ~/.xinge/config.json：
 
     "rss_feeds": [
-      {"name": "某公众号", "url": "http://127.0.0.1:4000/feeds/xxx.atom", "board": "wechat"}
+      {"name": "某订阅源", "url": "https://example.com/feed.xml", "board": "custom"}
     ]
 """
 
@@ -128,7 +127,7 @@ def load_feeds() -> list[dict]:
 @register_source
 class RssSource:
     key = "rss"
-    name = "RSS / 公众号"
+    name = "RSS 订阅"
     auth = None
 
     def fetch(self) -> FetchReport:

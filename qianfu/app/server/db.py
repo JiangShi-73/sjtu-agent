@@ -80,7 +80,6 @@ DEFAULT_BOARDS = [
     ("event", "活动", 20),
     ("lab", "实验", 30),
     ("mooc", "慕课", 40),
-    ("wechat", "公众号", 50),
     ("zhitu", "知途好课", 60),
     ("college", "学院公告", 70),
     ("custom", "自定义", 90),
@@ -94,7 +93,6 @@ SOURCE_BOARD = {
     "cnmooc": "mooc",
     "rss": "custom",          # 单条订阅可以在 extra.board 里覆盖
     "aihaoke": "zhitu",
-    "wechat": "wechat",
     "college": "college",
 }
 
@@ -123,6 +121,14 @@ def init() -> None:
                    ON CONFLICT(key) DO UPDATE SET name=excluded.name, sort=excluded.sort""",
                 (key, name, sort),
             )
+
+        # 代码里删掉的板块，库里也清掉（比如放弃公众号之后的 wechat）
+        keep = [b[0] for b in DEFAULT_BOARDS]
+        placeholders = ",".join("?" * len(keep))
+        conn.execute(f"DELETE FROM boards WHERE key NOT IN ({placeholders})", keep)
+        conn.execute(
+            f"DELETE FROM items WHERE board NOT IN ({placeholders})", keep
+        )
         conn.commit()
     finally:
         conn.close()

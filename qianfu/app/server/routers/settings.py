@@ -46,7 +46,7 @@ def add_feed(body: dict):
         {
             "name": (body.get("name") or url).strip(),
             "url": url,
-            "board": body.get("board") or "wechat",
+            "board": body.get("board") or "custom",
         }
     )
     config.save({"rss_feeds": feeds})
@@ -59,32 +59,6 @@ def remove_feed(url: str):
     feeds = [f for f in (cfg.get("rss_feeds") or []) if f.get("url") != url]
     config.save({"rss_feeds": feeds})
     return {"ok": True, "feeds": feeds}
-
-
-@router.get("/wechat/articles")
-def list_wechat_articles():
-    cfg = config.load()
-    return {"articles": cfg.get("wechat_articles") or []}
-
-
-@router.post("/wechat/articles")
-def add_wechat_article(body: dict):
-    url = (body.get("url") or "").strip()
-    if "mp.weixin.qq.com/s" not in url:
-        return {"ok": False, "error": "需要 mp.weixin.qq.com 的文章链接"}
-    cfg = config.load()
-    urls = [u for u in (cfg.get("wechat_articles") or []) if u != url]
-    urls.append(url)
-    config.save({"wechat_articles": urls})
-    return {"ok": True, "articles": urls}
-
-
-@router.delete("/wechat/articles")
-def remove_wechat_article(url: str):
-    cfg = config.load()
-    urls = [u for u in (cfg.get("wechat_articles") or []) if u != url]
-    config.save({"wechat_articles": urls})
-    return {"ok": True, "articles": urls}
 
 
 @router.put("/settings")

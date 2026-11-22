@@ -155,15 +155,14 @@
   </dialog>
 
   <dialog id="feeds-dlg">
-    <h2>RSS / 公众号订阅</h2>
-    <p class="hint">公众号没有官方接口，通常先用 <b>WeWe RSS</b> 转成 RSS，再把地址贴到这里。</p>
+    <h2>RSS 订阅</h2>
+    <p class="hint">任何输出 RSS / Atom 的地址都能加进来。</p>
     <div id="feed-list" class="feed-list"></div>
     <div class="feed-add">
-      <input id="feed-name" placeholder="名称，如「某公众号」" />
+      <input id="feed-name" placeholder="名称，如「某博客」" />
       <input id="feed-url" placeholder="RSS 地址" />
       <div class="feed-add-row">
         <select id="feed-board">
-          <option value="wechat">公众号</option>
           <option value="custom">自定义</option>
         </select>
         <button id="feed-add-btn" class="primary">添加</button>
@@ -172,14 +171,6 @@
     <h2 class="section">学院公告</h2>
     <p class="hint">勾选要订阅的学院，取消勾选的不会再抓。</p>
     <div id="college-list" class="feed-list"></div>
-
-    <h2 class="section">公众号文章</h2>
-    <p class="hint">公众号没有公开的文章列表接口，只能按链接订阅：把文章地址粘进来。</p>
-    <div id="wx-list" class="feed-list"></div>
-    <div class="feed-add">
-      <input id="wx-url" placeholder="https://mp.weixin.qq.com/s/..." />
-      <button id="wx-add-btn" class="primary">添加文章</button>
-    </div>
 
     <h2 class="section">邮箱</h2>
     <p class="hint">用 IMAP 读收件箱，需要邮箱密码（不是扫码）。密码只存在本机。</p>
