@@ -13,6 +13,9 @@ xinge-*.png
 # AstrBot 检出目录（首次运行 main.py 自动 clone）
 qianfu/astrbot/
 
+# 打包产物
+qianfu/build/
+
 # Node
 node_modules/
 

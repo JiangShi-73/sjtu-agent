@@ -45,7 +45,7 @@ def start() -> dict:
         if not astrbot_setup.installed():
             return {"ok": False, "state": "not-installed"}
 
-        py = astrbot_setup.venv_python()
+        py = astrbot_setup.python_for_astrbot()
         _proc = subprocess.Popen(
             [str(py), "main.py"],
             cwd=astrbot_setup.ASTRBOT_DIR,

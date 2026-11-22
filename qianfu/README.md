@@ -86,6 +86,67 @@ claude-haiku-5-5      hy3               hy4-preview
 
 > API Key 不写进仓库，存在 `astrbot/data/cmd_config.json`（该目录已 gitignore）。
 
+
+## 两个 Windows 版本
+
+| | 轻量版 | 完整版 |
+|---|---|---|
+| 体积 | ~10 MB（仓库） | **394 MB**（zip） |
+| 前置要求 | 装 Python 3.10+ | 无 |
+| 首次启动 | 下载 AstrBot + 装 322 个包，**约 10 分钟** | **解压即用，0 秒** |
+| 需要联网 | 是 | 否 |
+| 适用 | 开发、自己用 | 发给别人 |
+
+### 轻量版
+
+~~~bash
+cd qianfu
+pip install -r requirements.txt
+playwright install chromium
+python main.py
+~~~
+
+首次会 clone AstrBot 到 `qianfu/astrbot/`，建独立 venv 装依赖。
+
+**已经装过 AstrBot 的**，设个环境变量指过去，不用再下一份：
+
+~~~powershell
+$env:XINGE_ASTRBOT_DIR = "D:\path\to\AstrBot"
+python main.py
+~~~
+
+### 完整版
+
+打包：
+
+~~~bash
+python scripts/build_portable.py
+~~~
+
+产出 `build/信鸽SJTU-完整版.zip`（394 MB）。里面装好了：
+
+~~~
+信鸽SJTU-完整版/
+├── python/          嵌入式 Python 3.12（用户不用装 Python）
+├── packages/        全部依赖，含 AstrBot 的 322 个包
+├── app/ xinge/      信鸽源码
+├── astrbot/         AstrBot 源码
+└── 启动.bat         双击即用
+~~~
+
+用户拿到解压，双击 `启动.bat`，浏览器开 <http://127.0.0.1:8722> 就行。
+
+**便携模式怎么实现的**：`启动.bat` 设 `XINGE_PORTABLE=1`，
+`astrbot_setup.portable()` 检测到就直接用当前解释器跑 AstrBot，
+不建 venv、不装依赖。
+
+### 打包时踩的坑
+
+1. **嵌入式 Python 没有 pip** —— 要先用 `get-pip.py` 引导
+2. **`._pth` 会屏蔽 PYTHONPATH** —— 依赖路径必须写进 `python312._pth`
+3. **`._pth` 里禁用了 site** —— `.pth` 文件不生效，pywin32 的路径要手写
+4. **pywin32 的 DLL 必须放 python.exe 旁边** —— 否则 `import pywintypes` 报错
+
 ## 目录
 
 ```

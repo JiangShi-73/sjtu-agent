@@ -20,7 +20,9 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-ASTRBOT_DIR = ROOT / "astrbot"
+
+# 已经自己装过 AstrBot 的，设这个环境变量指过去就行，不用再下一份
+ASTRBOT_DIR = Path(os.environ.get("XINGE_ASTRBOT_DIR") or (ROOT / "astrbot")).resolve()
 PLUGIN_SRC = ROOT / "integrations" / "astrbot_plugin_xinge"
 PLUGIN_DST = ASTRBOT_DIR / "data" / "plugins" / "xinge"
 CONFIG_PATH = ASTRBOT_DIR / "data" / "cmd_config.json"
@@ -36,12 +38,37 @@ def venv_python() -> Path:
     return ASTRBOT_DIR / ".venv" / "bin" / "python"
 
 
+def portable() -> bool:
+    """便携版：依赖装在 packages/ 里，用嵌入式 Python，没有 venv。"""
+    return (ROOT / "packages").exists() and os.environ.get("XINGE_PORTABLE") == "1"
+
+
+def python_for_astrbot() -> Path:
+    """跑 AstrBot 用哪个解释器。
+
+    便携版直接用当前解释器（嵌入式 Python + PYTHONPATH），
+    开发版用 astrbot/.venv 里那个。
+    """
+    if portable():
+        return Path(sys.executable)
+    return venv_python()
+
+
 def installed() -> bool:
-    return (ASTRBOT_DIR / "main.py").exists() and venv_python().exists()
+    if not (ASTRBOT_DIR / "main.py").exists():
+        return False
+    return portable() or venv_python().exists()
 
 
 def ensure_installed(log=print) -> None:
-    """没有就 clone + 建 venv + 装依赖。第一次比较久。"""
+    """没有就 clone + 建 venv + 装依赖。第一次比较久。
+
+    便携版依赖已经在 packages/ 里，不需要装任何东西。
+    """
+    if portable():
+        log("便携版：AstrBot 和依赖都已内置")
+        return
+
     if (ASTRBOT_DIR / "main.py").exists():
         pass
     else:
