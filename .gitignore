@@ -10,6 +10,9 @@ qr-*.png
 qr-*.html
 xinge-*.png
 
+# AstrBot 检出目录（首次运行 main.py 自动 clone）
+qianfu/astrbot/
+
 # Node
 node_modules/
 
