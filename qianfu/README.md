@@ -53,6 +53,39 @@ python main.py --no-astrbot
 | `/确认` | 标记为已推送 |
 | `/刷新` | 触发一次全量抓取 |
 
+
+## 模型配置
+
+AstrBot 用的是 opencode 的 OpenAI 兼容接口，配置写在 `astrbot/data/cmd_config.json`。
+
+迁移后 AstrBot 会把它拆成两层：
+
+~~~json
+// provider_sources —— 连哪儿、用什么 key
+{"id": "opencode-go_source",
+ "provider": "openai",
+ "type": "openai_chat_completion",
+ "api_base": "https://opencode.ai/inference/go/v1",
+ "custom_headers": {"x-opencode-session": "astrbot"}}
+
+// provider —— 用哪个模型
+{"id": "opencode-go",
+ "model": "deepseek-v4.1-flash",
+ "provider_source_id": "opencode-go_source"}
+~~~
+
+可用模型（`GET /inference/go/v1/models`）：
+
+~~~
+deepseek-v4.1-flash   deepseek-v4-pro   glm-5.3   glm-5.3-flash
+grok-4.7              gpt-5.6-luna      gpt-6-luna
+claude-haiku-5-5      hy3               hy4-preview
+~~~
+
+换模型：面板「模型提供商」改，或直接改 `provider[0].model` 后重启。
+
+> API Key 不写进仓库，存在 `astrbot/data/cmd_config.json`（该目录已 gitignore）。
+
 ## 目录
 
 ```
