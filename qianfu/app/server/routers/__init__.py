@@ -9,6 +9,7 @@ from .mail import router as mail_router
 from .events import router as events_router
 from .items import router as items_router
 from .jaccount import router as jaccount_router
+from .jwc import router as jwc_router
 from .settings import router as settings_router
 from .setup import router as setup_router
 from .shuiyuan import router as shuiyuan_router
@@ -27,6 +28,7 @@ __all__ = [
     "events_router",
     "items_router",
     "jaccount_router",
+    "jwc_router",
     "settings_router",
     "setup_router",
     "shuiyuan_router",

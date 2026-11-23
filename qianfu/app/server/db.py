@@ -252,6 +252,19 @@ def mark_pushed(ids: list[int]) -> int:
         conn.close()
 
 
+def event_exists(title: str, event_date: str, start_time: str | None) -> bool:
+    """同一天同一时间同名的日程已经存在？"""
+    conn = connect()
+    try:
+        row = conn.execute(
+            "SELECT 1 FROM events WHERE title=? AND event_date=? AND COALESCE(start_time,'')=?",
+            (title, event_date, start_time or ""),
+        ).fetchone()
+        return row is not None
+    finally:
+        conn.close()
+
+
 def count_by_category(board: str) -> dict:
     """按 category 统计条数和未读。"""
     conn = connect()
