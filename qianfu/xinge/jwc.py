@@ -141,6 +141,68 @@ def _client() -> httpx.Client:
     )
 
 
+def term_calendar() -> dict:
+    """从校历页解析本学期起止日期。
+
+    页面里有一行：2026-2027学年1学期(2026-09-07至2027-02-07)
+
+    Returns:
+        {"name": 学期名, "start": "YYYY-MM-DD", "end": "YYYY-MM-DD"}
+    """
+    import re
+
+    with _client() as client:
+        resp = client.get(ORIGIN + "/xtgl/index_cxAreaFive.html")
+
+    match = re.search(
+        r"(\d{4}-\d{4}学年\d学期)\s*[(（]\s*(\d{4}-\d{2}-\d{2})\s*至\s*(\d{4}-\d{2}-\d{2})",
+        resp.text,
+    )
+    if not match:
+        raise JwcError("校历页里没找到学期起止日期")
+
+    return {"name": match.group(1), "start": match.group(2), "end": match.group(3)}
+
+
+def parse_weeks(zcd: str) -> list[int]:
+    """解析周次范围。
+
+    Args:
+        zcd: 形如 "1-12周"、"3-15周(单)"、"1-16周(双)"、"1-8周,10-16周"。
+
+    Returns:
+        周次列表，从 1 开始。
+    """
+    import re
+
+    text = (zcd or "").strip()
+    if not text:
+        return []
+
+    parity = ""
+    if "单" in text:
+        parity = "odd"
+    elif "双" in text:
+        parity = "even"
+
+    weeks: list[int] = []
+    for part in re.split(r"[,，]", text):
+        nums = [int(n) for n in re.findall(r"[0-9]+", part)]
+        if not nums:
+            continue
+        if len(nums) >= 2:
+            weeks.extend(range(nums[0], nums[1] + 1))
+        else:
+            weeks.append(nums[0])
+
+    if parity == "odd":
+        weeks = [w for w in weeks if w % 2 == 1]
+    elif parity == "even":
+        weeks = [w for w in weeks if w % 2 == 0]
+
+    return sorted(set(weeks))
+
+
 def timetable(year: int | None = None, term: int | None = None) -> dict:
     """拉课表。
 
@@ -193,36 +255,42 @@ def timetable(year: int | None = None, term: int | None = None) -> dict:
     }
 
 
-def to_events(weeks: int = 2) -> list[dict]:
+def to_events(weeks: int | None = None, upcoming_only: bool = True) -> list[dict]:
     """把课表转成日历事件。
 
-    每条课程用「下一次上课的日期」当锚点，往后排 weeks 周。
+    用校历里的学期开始日期算第 1 周的周一，再按每门课的周次范围铺满。
 
     Args:
-        weeks: 往后排几周，默认 2。
+        weeks: 只排前 N 周；None 表示排满整个学期。
+        upcoming_only: 只排今天及以后的课，默认 True。
 
     Returns:
         事件字典列表，可直接写进日历。
     """
     data = timetable()
+    calendar = term_calendar()
+
+    term_start = datetime.strptime(calendar["start"], "%Y-%m-%d").date()
+    # 学期开始那天可能不是周一，往前推到周一
+    term_start -= timedelta(days=term_start.weekday())
+
+    today = date.today()
     events: list[dict] = []
 
     for course in data["courses"]:
-        anchor = course.get("next_date") or ""
-        try:
-            first = datetime.strptime(anchor, "%Y-%m-%d").date()
-        except ValueError:
-            continue
-
         start_time, end_time = period_time(course["periods"])
-
-        # dateDigitSeparator 给的是「本周周一」，不是上课那天，
-        # 真正日期 = 周一 + (星期几 - 1)
         weekday = int(course.get("weekday") or 1)
-        base = first + timedelta(days=max(0, weekday - 1))
 
-        for offset in range(max(1, weeks)):
-            day = base + timedelta(days=7 * offset)
+        week_numbers = parse_weeks(course.get("weeks") or "")
+        if not week_numbers:
+            continue
+        if weeks:
+            week_numbers = week_numbers[:weeks]
+
+        for week in week_numbers:
+            day = term_start + timedelta(days=7 * (week - 1) + (weekday - 1))
+            if upcoming_only and day < today:
+                continue
             events.append(
                 {
                     "title": course["name"],

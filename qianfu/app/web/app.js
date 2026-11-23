@@ -749,9 +749,9 @@ async function openFeeds() {
 $("#jwc-sync").onclick = async () => {
   $("#jwc-status").textContent = "同步中…";
   try {
-    const r = await api("/jwc/sync?weeks=2", { method: "POST" });
+    const r = await api("/jwc/sync", { method: "POST" });
     $("#jwc-status").textContent =
-      "新增 " + r.created + " 条，跳过 " + r.skipped + " 条";
+      "排满学期，新增 " + r.created + " 条，跳过 " + r.skipped + " 条";
     loadBoards();
     loadItems();
     if (typeof renderBig === "function") renderBig();

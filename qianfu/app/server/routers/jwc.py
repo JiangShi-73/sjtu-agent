@@ -34,15 +34,26 @@ async def timetable(year: int | None = None, term: int | None = None):
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
+@router.get("/jwc/calendar")
+async def calendar():
+    """本学期起止日期。"""
+    try:
+        return await asyncio.to_thread(jwc.term_calendar)
+    except jwc.JwcError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
 @router.post("/jwc/sync")
-async def sync(weeks: int = 2):
+async def sync(weeks: int = 0, all_weeks: bool = True):
     """把课表写进日历。
 
     Args:
-        weeks: 往后排几周，默认 2。
+        weeks: 只排前 N 周，0 表示排满整个学期。
+        all_weeks: 是否排满学期，默认 True。
     """
+    limit = weeks if weeks and weeks > 0 else None
     try:
-        events = await asyncio.to_thread(jwc.to_events, max(1, min(weeks, 8)))
+        events = await asyncio.to_thread(jwc.to_events, limit)
     except jwc.JwcError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -60,5 +71,5 @@ async def sync(weeks: int = 2):
         "total": len(events),
         "created": created,
         "skipped": skipped,
-        "weeks": weeks,
+        "weeks": limit or "全部",
     }
