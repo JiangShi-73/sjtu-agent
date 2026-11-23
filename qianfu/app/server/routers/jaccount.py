@@ -28,8 +28,14 @@ async def sso(site: str):
 
 @router.post("/jaccount/sso")
 async def sso_all():
-    """所有站都试一遍，返回每个站的结果。"""
+    """所有站都试一遍，返回每个站的结果。
+
+    单个站失败不影响其它站——每个都单独兜住异常。
+    """
     results = {}
     for site in jaccount.SITES:
-        results[site] = await asyncio.to_thread(jaccount.login, site)
+        try:
+            results[site] = await asyncio.to_thread(jaccount.login, site)
+        except Exception as exc:                  # noqa: BLE001
+            results[site] = {"ok": False, "error": str(exc)[:160]}
     return {"results": results}

@@ -7,6 +7,8 @@ httpx>=0.27,<1.0
 starlette>=0.40
 pydantic>=2.0
 websockets>=12.0
+# jAccount 扫码登录要收 WebSocket 消息（长轮询）
+websocket-client>=1.7
 
 # 浏览器抓取（Canvas / 慕课 / 学院公告的 JS 渲染站点）
 # 装完还要下浏览器内核：

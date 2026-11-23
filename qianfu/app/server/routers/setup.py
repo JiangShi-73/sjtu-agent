@@ -16,6 +16,89 @@ from xinge import astrbot_setup
 router = APIRouter(tags=["setup"])
 
 
+@router.get("/setup/quick")
+def quick_status():
+    """一键自检：还差什么才能用。
+
+    返回一个清单，前端照着提示一步步配就行，不用翻文档。
+    """
+    from pathlib import Path
+    import os
+
+    from .. import db
+
+    home = Path(os.path.expanduser("~")) / ".xinge"
+    cfg_path = home / "config.json"
+
+    cfg = {}
+    if cfg_path.exists():
+        import json
+
+        try:
+            cfg = json.loads(cfg_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            cfg = {}
+
+    checks = []
+
+    checks.append(
+        {
+            "key": "canvas",
+            "name": "Canvas 登录",
+            "ok": bool(cfg.get("canvas_token")) or (home / "session.json").exists(),
+            "hint": "点「订阅」→「扫码登录」，用 jAccount 扫一次。",
+            "required": True,
+        }
+    )
+
+    checks.append(
+        {
+            "key": "model",
+            "name": "模型 Key",
+            "ok": bool(cfg.get("llm_key")),
+            "hint": "点「机器人」填 API Key。不填也能用，只是问助手不能用。",
+            "required": False,
+        }
+    )
+
+    checks.append(
+        {
+            "key": "qq",
+            "name": "QQ 机器人",
+            "ok": bool(cfg.get("qq_appid") and cfg.get("qq_secret")),
+            "hint": "点「机器人」填 appid/secret。不填就用不了 QQ 推送。",
+            "required": False,
+        }
+    )
+
+    checks.append(
+        {
+            "key": "shuiyuan",
+            "name": "水源社区",
+            "ok": (home / "shuiyuan.json").exists(),
+            "hint": "在「订阅」里点「全部登录一遍」。",
+            "required": False,
+        }
+    )
+
+    checks.append(
+        {
+            "key": "data",
+            "name": "有数据了",
+            "ok": len(db.list_items(None, False, 1)) > 0,
+            "hint": "点左下角「抓取全部」。",
+            "required": True,
+        }
+    )
+
+    missing = [c for c in checks if not c["ok"] and c["required"]]
+    return {
+        "ready": not missing,
+        "checks": checks,
+        "next": missing[0]["hint"] if missing else "都配好了",
+    }
+
+
 @router.get("/setup/status")
 def setup_status():
     cfg = config.load()
