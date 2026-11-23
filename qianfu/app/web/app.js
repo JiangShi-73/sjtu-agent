@@ -55,6 +55,19 @@ async function loadBoards() {
   };
   nav.appendChild(all);
 
+  const archive = document.createElement("button");
+  archive.className = "board" + (state.board === "__archive" ? " active" : "");
+  archive.textContent = "存档区";
+  archive.onclick = () => {
+    showFeed();
+    state.board = "__archive";
+    state.college = null;
+    $("#college-bar").hidden = true;
+    loadBoards();
+    loadItems();
+  };
+  nav.appendChild(archive);
+
   for (const b of data) {
     const el = document.createElement("button");
     el.className = "board" + (state.board === b.key ? " active" : "");
@@ -147,6 +160,22 @@ async function loadItems() {
   if (state.board) params.set("board", state.board);
   if (state.onlyUnread) params.set("unread", "true");
   if (state.college) params.set("college", state.college);
+
+  // 存档区走另一个接口
+  if (state.board === "__archive") {
+    const { items } = await api("/archive?limit=200");
+    const box = $("#items");
+    box.innerHTML = "";
+    $("#count").textContent = items.length ? items.length + " 条（保留 7 天）" : "";
+    $("#college-bar").hidden = true;
+
+    if (!items.length) {
+      box.innerHTML = '<div class="empty">存档区是空的。过了 ddl 的条目会自动进来，放 7 天后删掉。</div>';
+      return;
+    }
+    for (const it of items) box.appendChild(renderItemCard(it));
+    return;
+  }
 
   const { items } = await api("/items?" + params);
   const box = $("#items");

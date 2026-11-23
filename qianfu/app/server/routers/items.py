@@ -20,8 +20,9 @@ def list_items(
     unread: bool = Query(False),
     limit: int = Query(100, ge=1, le=500),
     college: str | None = Query(None, description="只看某个学院（学院公告板块用）"),
+    archived: bool = Query(False, description="看存档区"),
 ):
-    items = db.list_items(board, unread, limit, category=college)
+    items = db.list_items(board, unread, limit, category=college, archived=archived)
     return {"items": items, "college": college}
 
 

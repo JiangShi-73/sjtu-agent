@@ -23,6 +23,7 @@ from . import db
 from .events import bus
 from .routers import (
     agent_router,
+    archive_router,
     api_manage_router,
     aihaoke_router,
     bot_router,
@@ -66,6 +67,14 @@ async def lifespan(app: FastAPI):
     setup_logging()
     db.init()
     logging.getLogger("xinge.app").info("服务启动，数据库 %s", db.DB_PATH)
+
+    # 自动抓取 + 自动归档
+    try:
+        from . import scheduler
+
+        scheduler.start()
+    except Exception as exc:                      # noqa: BLE001
+        logging.getLogger("xinge.app").warning("定时任务没起来：%s", exc)
 
     # AstrBot 装了就在后台拉起来，失败不影响信鸽本身
     try:
@@ -118,6 +127,7 @@ app.include_router(canvas_router, prefix="/api/v1")
 app.include_router(bot_router, prefix="/api/v1")
 app.include_router(aihaoke_router, prefix="/api/v1")
 app.include_router(agent_router, prefix="/api/v1")
+app.include_router(archive_router, prefix="/api/v1")
 app.include_router(api_manage_router, prefix="/api/v1")
 
 

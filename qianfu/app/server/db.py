@@ -115,6 +115,9 @@ def init() -> None:
         cols = {r["name"] for r in conn.execute("PRAGMA table_info(items)")}
         if "pushed_at" not in cols:
             conn.execute("ALTER TABLE items ADD COLUMN pushed_at TEXT")
+        # 过期归档：到期的先移进存档区，放一周再删
+        if "archived_at" not in cols:
+            conn.execute("ALTER TABLE items ADD COLUMN archived_at TEXT")
 
         for key, name, sort in DEFAULT_BOARDS:
             # 名称跟着代码走：改了 DEFAULT_BOARDS 下次启动就生效
@@ -178,12 +181,17 @@ def upsert_items(items: list) -> int:
 
 
 def list_items(
-    board: str | None, unread: bool, limit: int, category: str | None = None
+    board: str | None,
+    unread: bool,
+    limit: int,
+    category: str | None = None,
+    archived: bool = False,
 ) -> list[dict]:
     conn = connect()
     try:
         sql = "SELECT * FROM items"
         where, args = [], []
+        where.append("archived_at IS NOT NULL" if archived else "archived_at IS NULL")
         if board:
             where.append("board = ?")
             args.append(board)
@@ -288,6 +296,70 @@ def delete_item(item_id: int) -> bool:
         cur = conn.execute("DELETE FROM items WHERE id=?", (item_id,))
         conn.commit()
         return cur.rowcount > 0
+    finally:
+        conn.close()
+
+
+def archive_due(grace_days: int = 0) -> int:
+    """把过了 ddl 的条目移进存档区。
+
+    Args:
+        grace_days: 截止后宽限几天再归档，默认 0。
+
+    Returns:
+        这次归档了多少条。
+    """
+    conn = connect()
+    try:
+        cur = conn.execute(
+            """UPDATE items
+               SET archived_at = datetime('now','localtime')
+               WHERE archived_at IS NULL
+                 AND deadline IS NOT NULL AND deadline <> ''
+                 AND datetime(deadline) < datetime('now','localtime',?)""",
+            (f"-{int(grace_days)} days",),
+        )
+        conn.commit()
+        return cur.rowcount
+    finally:
+        conn.close()
+
+
+def purge_archived(days: int = 7) -> int:
+    """删掉在存档区待满 N 天的条目。
+
+    Args:
+        days: 保留天数，默认 7。
+
+    Returns:
+        删掉了多少条。
+    """
+    conn = connect()
+    try:
+        cur = conn.execute(
+            """DELETE FROM items
+               WHERE archived_at IS NOT NULL
+                 AND datetime(archived_at) < datetime('now','localtime',?)""",
+            (f"-{int(days)} days",),
+        )
+        conn.commit()
+        return cur.rowcount
+    finally:
+        conn.close()
+
+
+def archive_stats() -> list[dict]:
+    """存档区按板块统计。"""
+    conn = connect()
+    try:
+        rows = conn.execute(
+            """SELECT board, COUNT(*) AS c,
+                      MIN(archived_at) AS oldest,
+                      MIN(deadline) AS deadline
+               FROM items WHERE archived_at IS NOT NULL
+               GROUP BY board"""
+        ).fetchall()
+        return [dict(r) for r in rows]
     finally:
         conn.close()
 

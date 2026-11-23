@@ -1,4 +1,5 @@
 from .agent import router as agent_router
+from .archive import router as archive_router
 from .api_manage import router as api_manage_router
 from .aihaoke import router as aihaoke_router
 from .bot import router as bot_router
@@ -18,6 +19,7 @@ from .system import router as system_router
 
 __all__ = [
     "agent_router",
+    "archive_router",
     "api_manage_router",
     "aihaoke_router",
     "bot_router",
