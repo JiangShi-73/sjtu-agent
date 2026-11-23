@@ -32,6 +32,7 @@ from .routers import (
     mail_router,
     events_router,
     items_router,
+    jaccount_router,
     settings_router,
     setup_router,
     shuiyuan_router,
@@ -105,6 +106,7 @@ app.include_router(sources_router, prefix="/api/v1")
 app.include_router(setup_router, prefix="/api/v1")
 app.include_router(shuiyuan_router, prefix="/api/v1")
 app.include_router(items_router, prefix="/api/v1")
+app.include_router(jaccount_router, prefix="/api/v1")
 app.include_router(settings_router, prefix="/api/v1")
 app.include_router(events_router, prefix="/api/v1")
 app.include_router(courses_router, prefix="/api/v1")

@@ -738,34 +738,73 @@ function openActivity(it) {
 async function openFeeds() {
   await renderFeeds();
   await renderColleges();
-  await renderShuiyuan();
+  await renderJaccount();
   await renderCourses();
   $("#feeds-dlg").showModal();
 }
 
 
-async function renderShuiyuan() {
+
+async function renderJaccount() {
+  const box = $("#ja-list");
+  let s;
   try {
-    const s = await api("/shuiyuan/status");
-    $("#sy-status").textContent = s.logged_in ? "已登录" : "未登录";
-    $("#sy-login").textContent = s.logged_in ? "重新登录" : "登录水源";
+    s = await api("/jaccount/status");
   } catch (e) {
-    $("#sy-status").textContent = "读不到状态";
+    box.innerHTML = '<div class="feed-empty">读不到状态</div>';
+    return;
+  }
+
+  $("#ja-status").textContent = s.session ? "jAccount 会话有效" : "还没登录过";
+
+  box.innerHTML = "";
+  for (const site of s.sites) {
+    const row = document.createElement("div");
+    row.className = "course-row";
+
+    const name = document.createElement("div");
+    name.className = "name";
+    name.innerHTML =
+      escapeHtml(site.name) +
+      '<span class="id">' + (site.logged_in ? "已登录" : "未登录") + "</span>";
+
+    const btn = document.createElement("button");
+    btn.className = "mini";
+
+    if (site.method === "token") {
+      btn.textContent = "用令牌";
+      btn.disabled = true;
+      btn.title = site.note || "";
+      row.append(name, btn);
+      box.appendChild(row);
+      continue;
+    }
+
+    btn.textContent = site.logged_in ? "重新登录" : "登录";
+    btn.disabled = !s.session;
+    btn.onclick = async () => {
+      btn.disabled = true;
+      btn.textContent = "登录中…";
+      try {
+        await api("/jaccount/sso/" + site.key, { method: "POST" });
+        await renderJaccount();
+      } catch (e) {
+        btn.textContent = "失败";
+      }
+    };
+
+    row.append(name, btn);
+    box.appendChild(row);
   }
 }
 
-$("#sy-login").onclick = async () => {
-  $("#sy-status").textContent = "正在用 jAccount 登录…";
+$("#ja-all").onclick = async () => {
+  $("#ja-status").textContent = "正在逐个登录…";
   try {
-    const r = await api("/shuiyuan/login", { method: "POST" });
-    $("#sy-status").textContent =
-      r.method === "jaccount" ? "已用 jAccount 登录" : "登录成功";
-    await renderShuiyuan();
-    await api("/sources/shuiyuan/fetch", { method: "POST" });
-    loadBoards();
-    loadItems();
+    await api("/jaccount/sso", { method: "POST" });
+    await renderJaccount();
   } catch (e) {
-    $("#sy-status").textContent = "登录失败：" + e;
+    $("#ja-status").textContent = "失败：" + e;
   }
 };
 
