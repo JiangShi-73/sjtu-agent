@@ -29,7 +29,7 @@
       </div>
       <div class="btn-row">
         <button id="btn-clean">清理</button>
-        <button id="btn-quit">退出</button>
+        <button id="btn-logout">退出登录</button>
       </div>
       <button id="btn-login" hidden>扫码登录</button>
       <div id="status" class="status"></div>
@@ -315,3 +315,26 @@
   <script src="app.js" type="module"></script>
 </body>
 </html>
+    <section id="login-page" class="login-page" hidden>
+      <div class="login-card">
+        <div class="login-logo">信鸽 <span>SJTU</span></div>
+        <p class="login-sub">上海交大校园信息助手</p>
+
+        <div id="login-body">
+          <p class="login-hint">
+            用 jAccount 登录一次，作业、活动、学院公告、水源社区、课表<br />
+            就都进来了。登录态只存在这台电脑上。
+          </p>
+          <button id="login-go" class="login-btn">用 jAccount 登录</button>
+        </div>
+
+        <div id="login-qr-box" hidden>
+          <p class="login-hint">用「交我办」或微信扫一扫</p>
+          <img id="login-qr-img" alt="登录二维码" />
+          <p id="login-qr-tip" class="login-tip"></p>
+          <button id="login-cancel" class="login-link">取消</button>
+        </div>
+
+        <p class="login-foot">登录后可以随时在左下角「退出登录」</p>
+      </div>
+    </section>
