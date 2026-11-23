@@ -28,6 +28,11 @@ from .. import config, db, shots
 router = APIRouter(tags=["bot"])
 
 
+def date_today():
+    """今天（单独抽出来方便测试替换）。"""
+    return date.today()
+
+
 def _plain(row: dict) -> dict:
     """把数据库行整理成机器人好用的结构。"""
     extra = row.get("extra")
@@ -315,6 +320,72 @@ def bot_college_items(key: str, limit: int = 10, format: str = "json"):
         return {"count": len(rows), "text": "\n".join(lines)}
 
     return {"count": len(rows), "college": site["name"], "items": rows}
+
+
+@router.get("/bot/calendar.png")
+def bot_calendar_png(
+    view: str = "month",
+    show: str = "all",
+    date: str = "",
+):
+    """把日历渲染成图片发给机器人。
+
+    Args:
+        view: month 月 / week 周 / day 日。
+        show: all 课表+任务 / events 只有课表 / tasks 只有任务。
+        date: 基准日期 YYYY-MM-DD，空则今天。
+    """
+    from .. import calrender
+
+    try:
+        data = calrender.render(view, show, date)
+    except Exception as exc:                      # noqa: BLE001
+        raise HTTPException(status_code=500, detail=f"渲染失败：{exc}") from exc
+
+    return Response(content=data, media_type="image/png")
+
+
+@router.get("/bot/calendar")
+def bot_calendar_text(
+    view: str = "month",
+    show: str = "all",
+    date: str = "",
+    format: str = "text",
+):
+    """同一份数据的文字版（不方便看图时用）。"""
+    from .. import calrender
+
+    days = calrender.collect(show if show in ("all", "events", "tasks") else "all")
+    try:
+        anchor = datetime.strptime(date, "%Y-%m-%d").date() if date else date_today()
+    except ValueError:
+        anchor = date_today()
+
+    if view == "day":
+        keys = [anchor.isoformat()]
+        label = anchor.strftime("%m 月 %d 日")
+    elif view == "week":
+        monday = anchor - timedelta(days=anchor.weekday())
+        keys = [(monday + timedelta(days=i)).isoformat() for i in range(7)]
+        label = f'{monday.strftime("%m-%d")} 那一周'
+    else:
+        keys = sorted(days)
+        label = f'{anchor.year} 年 {anchor.month} 月'
+        keys = [k for k in keys if k.startswith(f'{anchor.year}-{anchor.month:02d}')]
+
+    lines = [f"{label}"]
+    for key in keys:
+        items = days.get(key) or []
+        if not items:
+            continue
+        lines.append(f"\n{key}")
+        for it in items:
+            mark = "" if it["kind"] == "event" else "（任务）"
+            lines.append(f'  {it["time"] or "全天"} {it["title"]}{mark}')
+    if len(lines) == 1:
+        lines.append("这段时间没有安排")
+
+    return {"count": len(lines) - 1, "text": "\n".join(lines)}
 
 
 @router.get("/bot/mail")

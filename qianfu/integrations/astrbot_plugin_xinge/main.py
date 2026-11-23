@@ -153,6 +153,39 @@ class XingePlugin(Star):
             return
         yield event.plain_result(data.get("text") or "没找到")
 
+# ---------- 日历图片 ----------
+
+    @filter.command("日历")
+    async def calendar(self, event: AstrMessageEvent, arg: str = ""):
+        """发日历图。用法：/日历 月|周|日 [课表|任务]"""
+        view = "month"
+        show = "all"
+
+        text = (arg or "").strip()
+        if "周" in text:
+            view = "week"
+        elif "日" in text or "天" in text:
+            view = "day"
+        elif "月" in text:
+            view = "month"
+
+        if "课表" in text or "日程" in text:
+            show = "events"
+        elif "任务" in text or "作业" in text:
+            show = "tasks"
+
+        url = f"{BASE}/bot/calendar.png?view={view}&show={show}"
+        try:
+            async with httpx.AsyncClient(timeout=120) as client:
+                resp = await client.get(url)
+                resp.raise_for_status()
+        except Exception as exc:
+            logger.error(f"日历图渲染失败: {exc}")
+            yield event.plain_result("日历渲染失败，稍后再试")
+            return
+
+        yield event.image_result(url)
+
     # ---------- 推送控制 ----------
 
     @filter.command("推送")

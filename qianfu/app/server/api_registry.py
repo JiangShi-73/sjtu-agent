@@ -59,6 +59,7 @@ BOT_ENDPOINTS: dict[str, str] = {
     "/api/v1/bot/aihaoke": "知途好课（别名）",
     "/api/v1/bot/mail": "最近邮件",
     "/api/v1/bot/search": "全库搜索",
+    "/api/v1/bot/calendar": "日历图/文字",
 }
 
 
