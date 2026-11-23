@@ -5,25 +5,60 @@
 const { app, BrowserWindow, shell, dialog } = require("electron");
 const { spawn } = require("node:child_process");
 const path = require("node:path");
+const fs = require("node:fs");
+const os = require("node:os");
+
+// 打包后没有控制台，启动过程写到临时文件，出问题好查
+const LOG = path.join(os.tmpdir(), "xinge-boot.log");
+function boot(msg) {
+  try {
+    fs.appendFileSync(LOG, new Date().toISOString() + " " + msg + "\n");
+  } catch {
+    /* 写不了就算了 */
+  }
+}
+boot(`--- 启动 pid=${process.pid} packaged=${app.isPackaged} ---`);
 
 const PORT = Number(process.env.XINGE_PORT || 8722);
 const BASE = `http://127.0.0.1:${PORT}`;
-const ROOT = path.resolve(__dirname, "..", "..");   // -> qianfu/
-const PYTHON = process.env.XINGE_PYTHON || "python";
+
+// 开发时 ROOT 是 qianfu/；打包后整套运行时在 resources/xinge/
+const PACKAGED = app.isPackaged;
+const ROOT = PACKAGED
+  ? path.join(process.resourcesPath, "xinge")
+  : path.resolve(__dirname, "..", "..");
+
+// 打包后自带嵌入式 Python，不依赖系统装没装
+const PYTHON = PACKAGED
+  ? path.join(ROOT, "python", process.platform === "win32" ? "python.exe" : "python")
+  : process.env.XINGE_PYTHON || "python";
 
 let backend = null;
 let win = null;
 
 function startBackend() {
+  const env = { ...process.env, PYTHONIOENCODING: "utf-8" };
+  if (PACKAGED) {
+    // 嵌入式 Python 靠 ._pth 找包，但仍显式给一份，避免路径意外
+    env.PYTHONPATH = [path.join(ROOT, "packages"), ROOT, path.join(ROOT, "astrbot")].join(
+      path.delimiter
+    );
+    env.XINGE_PORTABLE = "1";
+  }
+
   backend = spawn(PYTHON, ["-m", "app.server", "--port", String(PORT)], {
     cwd: ROOT,
-    env: { ...process.env, PYTHONIOENCODING: "utf-8" },
+    env,
     stdio: ["ignore", "pipe", "pipe"],
   });
 
   backend.stdout.on("data", (d) => process.stdout.write("[py] " + d));
   backend.stderr.on("data", (d) => process.stderr.write("[py] " + d));
+  boot(`拉起后端: ${PYTHON} (cwd=${ROOT})`);
+
+  backend.on("error", (err) => boot(`后端启动失败: ${err.message}`));
   backend.on("exit", (code) => {
+    boot(`后端退出 code=${code}`);
     if (code !== 0 && code !== null) {
       dialog.showErrorBox("后端已退出", `Python 进程退出码 ${code}`);
     }
@@ -72,11 +107,14 @@ app.whenReady().then(async () => {
   startBackend();
 
   const healthy = await waitForHealth();
+  boot(`健康检查: ${healthy}`);
   if (!healthy) {
     dialog.showErrorBox(
       "后端启动失败",
-      "30 秒内没能连上本地服务。\n\n请检查 Python 是否安装、依赖是否齐全：\n" +
-        "cd qianfu && python -m app.server"
+      "30 秒内没能连上本地服务。\n\n" +
+        (PACKAGED
+          ? "运行时目录：" + ROOT
+          : "开发模式，请检查 Python 和依赖：\ncd qianfu && python -m app.server")
     );
     app.quit();
     return;
