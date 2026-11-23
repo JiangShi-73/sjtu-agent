@@ -17,6 +17,7 @@
 from __future__ import annotations
 
 import json
+import os
 import platform
 import shutil
 import subprocess
@@ -30,15 +31,37 @@ OUT = BUILD / "xinge-linux"
 
 PY_VERSION = "3.12.10"
 PBS_TAG = "20241016"
-PBS_URL = (
-    "https://github.com/astral-sh/python-build-standalone/releases/download/"
-    + PBS_TAG
-    + "/cpython-"
-    + PY_VERSION
-    + "+"
-    + PBS_TAG
-    + "-x86_64-unknown-linux-gnu-install_only.tar.gz"
-)
+
+# 目标架构：x86_64 或 aarch64（按当前机器自动选，也可以 XINGE_ARCH 覆盖）
+ARCH_TRIPLE = {
+    "x86_64": "x86_64-unknown-linux-gnu",
+    "amd64": "x86_64-unknown-linux-gnu",
+    "aarch64": "aarch64-unknown-linux-gnu",
+    "arm64": "aarch64-unknown-linux-gnu",
+}
+
+
+def arch_triple() -> str:
+    """当前机器对应的 python-build-standalone 三元组。"""
+    machine = os.environ.get("XINGE_ARCH") or platform.machine()
+    triple = ARCH_TRIPLE.get(machine.lower())
+    if not triple:
+        raise SystemExit("不认识的架构：" + machine + "（支持 x86_64 / aarch64）")
+    return triple
+
+
+def pbs_url() -> str:
+    return (
+        "https://github.com/astral-sh/python-build-standalone/releases/download/"
+        + PBS_TAG
+        + "/cpython-"
+        + PY_VERSION
+        + "+"
+        + PBS_TAG
+        + "-"
+        + arch_triple()
+        + "-install_only.tar.gz"
+    )
 
 COPY = ["app", "xinge", "integrations", "scripts"]
 COPY_FILES = ["main.py", "requirements.txt", "README.md"]
@@ -71,8 +94,8 @@ def fetch_python(dest: Path) -> Path:
     archive = BUILD / "cpython-linux.tar.gz"
 
     if not archive.exists():
-        log("下载 Python " + PY_VERSION)
-        urllib.request.urlretrieve(PBS_URL, archive)
+        log("下载 Python " + PY_VERSION + "（" + arch_triple() + "）")
+        urllib.request.urlretrieve(pbs_url(), archive)
 
     log("解压")
     with tarfile.open(archive) as tar:
