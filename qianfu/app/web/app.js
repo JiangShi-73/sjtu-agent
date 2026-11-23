@@ -3,6 +3,8 @@ const API = "/api/v1";
 const state = {
   board: null,
   college: null,
+  showEvents: true,
+  showTasks: true,
   onlyUnread: false,
   view: "feed",
   month: new Date(),
@@ -402,7 +404,12 @@ function renderBig() {
     const list = document.createElement("div");
     list.className = "big-events";
 
-    for (const ev of state.events.filter((e) => e.event_date === ds)) {
+    const evs = state.showEvents ? state.events.filter((e) => e.event_date === ds) : [];
+    const tasks = state.showTasks
+      ? state.derived.filter((x) => String(x.deadline).slice(0, 10) === ds)
+      : [];
+
+    for (const ev of evs) {
       const chip = document.createElement("div");
       chip.className = "chip manual";
       chip.textContent = (ev.start_time ? ev.start_time + " " : "") + ev.title;
@@ -411,7 +418,7 @@ function renderBig() {
       list.appendChild(chip);
     }
 
-    for (const it of state.derived.filter((x) => String(x.deadline).slice(0, 10) === ds)) {
+    for (const it of tasks) {
       const chip = document.createElement("div");
       chip.className = "chip derived";
       chip.textContent = String(it.deadline).slice(11, 16) + " 截止 · " + it.title;
@@ -434,8 +441,10 @@ function renderDayList() {
   const box = $("#day-list");
   box.innerHTML = "";
 
-  const mine = state.events.filter((e) => e.event_date === ds);
-  const due = state.derived.filter((x) => String(x.deadline).slice(0, 10) === ds);
+  const mine = state.showEvents ? state.events.filter((e) => e.event_date === ds) : [];
+  const due = state.showTasks
+    ? state.derived.filter((x) => String(x.deadline).slice(0, 10) === ds)
+    : [];
 
   if (!mine.length && !due.length) {
     box.innerHTML = '<div class="day-empty">这天没有安排</div>';
@@ -1331,6 +1340,21 @@ $("#mail-save").onclick = async () => {
 };
 $("#tab-day").onclick = () => switchRail("day");
 $("#rail-expand").onclick = () => switchView("calendar");
+
+$("#cal-show-events").onclick = () => {
+  state.showEvents = !state.showEvents;
+  $("#cal-show-events").classList.toggle("on", state.showEvents);
+  renderBig();
+  renderDayList();
+};
+
+$("#cal-show-tasks").onclick = () => {
+  state.showTasks = !state.showTasks;
+  $("#cal-show-tasks").classList.toggle("on", state.showTasks);
+  renderBig();
+  renderDayList();
+};
+
 $("#cal-close").onclick = () => switchView("feed");
 
 $("#rail-prev").onclick = () => { state.month = new Date(state.month.getFullYear(), state.month.getMonth() - 1, 1); loadCalendar(); };
