@@ -152,7 +152,9 @@ def sync(cfg: dict) -> dict:
                 "provider": "openai",
                 "type": "openai_chat_completion",
                 "provider_type": "chat_completion",
-                "key": key,
+                # AstrBot v4.30 要求这里是列表；写成字符串会在
+                # text_chat 里报 'str' object has no attribute 'copy'
+                "key": [key] if isinstance(key, str) else list(key),
                 "api_base": base,
                 "timeout": 120,
                 "proxy": "",
