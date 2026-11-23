@@ -300,6 +300,70 @@ def delete_item(item_id: int) -> bool:
         conn.close()
 
 
+def mark_all_read(board: str | None = None) -> int:
+    """把某个板块（或全部）的未读标成已读。
+
+    Args:
+        board: 板块 key，None 表示全部。
+
+    Returns:
+        标了多少条。
+    """
+    conn = connect()
+    try:
+        if board:
+            cur = conn.execute(
+                """UPDATE items SET read_at = datetime('now','localtime')
+                   WHERE read_at IS NULL AND archived_at IS NULL AND board = ?""",
+                (board,),
+            )
+        else:
+            cur = conn.execute(
+                """UPDATE items SET read_at = datetime('now','localtime')
+                   WHERE read_at IS NULL AND archived_at IS NULL"""
+            )
+        conn.commit()
+        return cur.rowcount
+    finally:
+        conn.close()
+
+
+def mark_read_many(ids: list[int]) -> int:
+    """批量标已读。"""
+    if not ids:
+        return 0
+    conn = connect()
+    try:
+        marks = ",".join("?" * len(ids))
+        cur = conn.execute(
+            f"""UPDATE items SET read_at = datetime('now','localtime')
+                WHERE read_at IS NULL AND id IN ({marks})""",
+            ids,
+        )
+        conn.commit()
+        return cur.rowcount
+    finally:
+        conn.close()
+
+
+def archive_items(ids: list[int]) -> int:
+    """手动把几条移进存档区。"""
+    if not ids:
+        return 0
+    conn = connect()
+    try:
+        marks = ",".join("?" * len(ids))
+        cur = conn.execute(
+            f"""UPDATE items SET archived_at = datetime('now','localtime')
+                WHERE archived_at IS NULL AND id IN ({marks})""",
+            ids,
+        )
+        conn.commit()
+        return cur.rowcount
+    finally:
+        conn.close()
+
+
 def archive_due(grace_days: int = 0) -> int:
     """把过了 ddl 的条目移进存档区。
 

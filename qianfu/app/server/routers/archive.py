@@ -33,6 +33,24 @@ def archive_restore(item_id: int):
     return {"ok": db.delete_item(item_id)}
 
 
+@router.post("/items/read-all")
+def read_all(board: str | None = None):
+    """把某个板块（不传就是全部）的未读一次标掉。"""
+    return {"ok": True, "marked": db.mark_all_read(board)}
+
+
+@router.post("/items/read-batch")
+def read_batch(payload: dict):
+    """批量标已读：{"ids": [1,2,3]}"""
+    return {"ok": True, "marked": db.mark_read_many(payload.get("ids") or [])}
+
+
+@router.post("/items/archive-batch")
+def archive_batch(payload: dict):
+    """批量归档：{"ids": [1,2,3]}"""
+    return {"ok": True, "archived": db.archive_items(payload.get("ids") or [])}
+
+
 @router.get("/scheduler")
 def scheduler_status():
     """定时任务状态。"""

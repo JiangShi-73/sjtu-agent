@@ -26,6 +26,10 @@
         <button id="btn-feeds">订阅</button>
         <button id="btn-diag">诊断</button>
       </div>
+      <div class="btn-row">
+        <button id="btn-clean">清理</button>
+        <button id="btn-quit">退出</button>
+      </div>
       <button id="btn-login" hidden>扫码登录</button>
       <div id="status" class="status"></div>
     </div>
@@ -41,6 +45,8 @@
             <input type="checkbox" id="only-unread" />
             <span>只看未读</span>
           </label>
+          <button id="btn-read-all" class="mini">全部已读</button>
+          <button id="btn-select" class="mini">多选</button>
           <button id="btn-clear-read" class="mini">清理已读</button>
           <span id="count" class="count"></span>
         </div>
@@ -66,8 +72,8 @@
       <header class="topbar">
         <h1>日历</h1>
         <div class="cal-split">
-          <button id="cal-show-events" class="cal-toggle on">课表 / 日程</button>
-          <button id="cal-show-tasks" class="cal-toggle on">任务</button>
+          <button id="cal-show-class" class="cal-toggle on">课表</button>
+          <button id="cal-show-plan" class="cal-toggle on">日程</button>
         </div>
         <div class="topbar-right">
           <div class="cal-nav">

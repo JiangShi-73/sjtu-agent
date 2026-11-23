@@ -200,6 +200,20 @@ button.danger { color: var(--danger); border-color: #f0c9c4; }
 .hw-item.overdue .d { color: #b6bcc6; }
 .hw-empty { color: #b6bcc6; font-size: 12px; padding: 14px 2px; text-align: center; }
 
+.pick-bar {
+  position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%);
+  background: #1f2430; color: #fff; border-radius: 999px;
+  padding: 10px 16px; display: flex; gap: 10px; align-items: center;
+  font-size: 13px; z-index: 900; box-shadow: 0 6px 24px rgba(0,0,0,.22);
+}
+.pick-bar button {
+  border: none; border-radius: 999px; padding: 5px 12px;
+  background: #3b4252; color: #fff;
+  cursor: pointer; font-size: 13px;
+}
+.pick-bar button:hover { background: #4c5468; }
+input.pick { margin-right: 10px; width: 16px; height: 16px; accent-color: var(--accent); }
+
 .cal-split {
   display: flex; gap: 6px; margin-left: 18px;
 }

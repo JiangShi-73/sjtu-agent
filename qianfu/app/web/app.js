@@ -3,8 +3,10 @@ const API = "/api/v1";
 const state = {
   board: null,
   college: null,
-  showEvents: true,
-  showTasks: true,
+  showClass: true,
+  showPlan: true,
+  selecting: false,
+  picked: [],
   onlyUnread: false,
   view: "feed",
   month: new Date(),
@@ -91,6 +93,70 @@ async function loadBoards() {
 /* ---------------- 信息流 ---------------- */
 
 function renderItemCard(it) {
+  const card = buildItemCard(it);
+
+  if (state.selecting) {
+    const box = document.createElement("input");
+    box.type = "checkbox";
+    box.className = "pick";
+    box.checked = (state.picked || []).includes(it.id);
+    box.onclick = (e) => {
+      e.stopPropagation();
+      state.picked = box.checked
+        ? [...(state.picked || []), it.id]
+        : (state.picked || []).filter((x) => x !== it.id);
+      updatePickBar();
+    };
+    card.prepend(box);
+  }
+  return card;
+}
+
+function updatePickBar() {
+  let bar = $("#pick-bar");
+  if (!bar) {
+    bar = document.createElement("div");
+    bar.id = "pick-bar";
+    bar.className = "pick-bar";
+    document.body.appendChild(bar);
+  }
+
+  const n = (state.picked || []).length;
+  bar.hidden = !n;
+  if (!n) return;
+
+  bar.innerHTML = "已选 " + n + " 条 ";
+
+  const read = document.createElement("button");
+  read.textContent = "标已读";
+  read.onclick = async () => {
+    await api("/items/read-batch", {
+      method: "POST",
+      body: JSON.stringify({ ids: state.picked }),
+    });
+    state.picked = [];
+    updatePickBar();
+    loadBoards();
+    loadItems();
+  };
+
+  const arch = document.createElement("button");
+  arch.textContent = "归档";
+  arch.onclick = async () => {
+    await api("/items/archive-batch", {
+      method: "POST",
+      body: JSON.stringify({ ids: state.picked }),
+    });
+    state.picked = [];
+    updatePickBar();
+    loadBoards();
+    loadItems();
+  };
+
+  bar.append(read, arch);
+}
+
+function buildItemCard(it) {
     const el = document.createElement("article");
     el.className = "item" + (it.read ? " read" : "");
     const canSchedule = it.source === "second_classroom";
@@ -407,6 +473,16 @@ function selectDay(ds, d, currentMonth) {
   renderDayList();
 }
 
+// 日历上只放「真的进了日程」的：课表 + 手动/转过来的日程。
+// 信息流里带 ddl 的条目不会自动上日历——那会把日历淹掉。
+function calendarEvents(ds) {
+  return state.events.filter((e) => {
+    if (e.event_date !== ds) return false;
+    const isClass = e.source === "jwc";
+    return isClass ? state.showClass : state.showPlan;
+  });
+}
+
 function renderBig() {
   const { y, m, rows, gridStart } = monthGrid();
   $("#cal-label").textContent = y + " 年 " + (m + 1) + " 月";
@@ -433,10 +509,7 @@ function renderBig() {
     const list = document.createElement("div");
     list.className = "big-events";
 
-    const evs = state.showEvents ? state.events.filter((e) => e.event_date === ds) : [];
-    const tasks = state.showTasks
-      ? state.derived.filter((x) => String(x.deadline).slice(0, 10) === ds)
-      : [];
+    const evs = calendarEvents(ds);
 
     for (const ev of evs) {
       const chip = document.createElement("div");
@@ -444,14 +517,6 @@ function renderBig() {
       chip.textContent = (ev.start_time ? ev.start_time + " " : "") + ev.title;
       chip.title = [ev.start_time, ev.end_time, ev.location].filter(Boolean).join(" ");
       chip.onclick = (e) => { e.stopPropagation(); openDialog(ev); };
-      list.appendChild(chip);
-    }
-
-    for (const it of tasks) {
-      const chip = document.createElement("div");
-      chip.className = "chip derived";
-      chip.textContent = String(it.deadline).slice(11, 16) + " 截止 · " + it.title;
-      chip.onclick = (e) => { e.stopPropagation(); if (it.url) window.open(it.url, "_blank"); };
       list.appendChild(chip);
     }
 
@@ -470,10 +535,8 @@ function renderDayList() {
   const box = $("#day-list");
   box.innerHTML = "";
 
-  const mine = state.showEvents ? state.events.filter((e) => e.event_date === ds) : [];
-  const due = state.showTasks
-    ? state.derived.filter((x) => String(x.deadline).slice(0, 10) === ds)
-    : [];
+  const mine = calendarEvents(ds);
+  const due = [];
 
   if (!mine.length && !due.length) {
     box.innerHTML = '<div class="day-empty">这天没有安排</div>';
@@ -1370,18 +1433,57 @@ $("#mail-save").onclick = async () => {
 $("#tab-day").onclick = () => switchRail("day");
 $("#rail-expand").onclick = () => switchView("calendar");
 
-$("#cal-show-events").onclick = () => {
-  state.showEvents = !state.showEvents;
-  $("#cal-show-events").classList.toggle("on", state.showEvents);
+$("#cal-show-class").onclick = () => {
+  state.showClass = !state.showClass;
+  $("#cal-show-class").classList.toggle("on", state.showClass);
   renderBig();
   renderDayList();
 };
 
-$("#cal-show-tasks").onclick = () => {
-  state.showTasks = !state.showTasks;
-  $("#cal-show-tasks").classList.toggle("on", state.showTasks);
+$("#cal-show-plan").onclick = () => {
+  state.showPlan = !state.showPlan;
+  $("#cal-show-plan").classList.toggle("on", state.showPlan);
   renderBig();
   renderDayList();
+};
+
+// 退出：关窗口，Electron 那边 window-all-closed 会连同后端一起退
+$("#btn-read-all").onclick = async () => {
+  const scope = state.board && state.board !== "__archive" ? "?board=" + state.board : "";
+  if (!window.confirm("把当前板块的未读全部标为已读？")) return;
+  try {
+    const r = await api("/items/read-all" + scope, { method: "POST" });
+    $("#status").textContent = "标了 " + r.marked + " 条";
+    loadBoards();
+    loadItems();
+  } catch (e) {
+    alert("失败：" + e);
+  }
+};
+
+$("#btn-select").onclick = () => {
+  state.selecting = !state.selecting;
+  $("#btn-select").classList.toggle("on", state.selecting);
+  $("#btn-select").textContent = state.selecting ? "取消多选" : "多选";
+  if (!state.selecting) state.picked = [];
+  updatePickBar();
+  loadItems();
+};
+
+$("#btn-quit").onclick = () => {
+  if (window.confirm("退出信鸽？后台服务会一起关掉。")) window.close();
+};
+
+// 清理：把过期条目归档，存档区待满一周的删掉
+$("#btn-clean").onclick = async () => {
+  try {
+    const r = await api("/archive/run", { method: "POST" });
+    alert("已归档 " + r.archived + " 条，清理 " + r.purged + " 条");
+    loadBoards();
+    loadItems();
+  } catch (e) {
+    alert("清理失败：" + e);
+  }
 };
 
 $("#cal-close").onclick = () => switchView("feed");
