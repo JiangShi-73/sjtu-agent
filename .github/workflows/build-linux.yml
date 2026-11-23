@@ -1,0 +1,46 @@
+name: build-linux
+
+on:
+  push:
+    branches: [qianfu_linux]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: 装依赖
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libfuse2 rpm
+          python -m pip install --upgrade pip
+
+      - name: 打 Linux 运行时
+        working-directory: qianfu
+        run: python scripts/build_linux.py
+
+      - name: 打安装包
+        working-directory: qianfu/app/desktop
+        run: |
+          npm install --no-audit --no-fund
+          npm run dist:linux
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: xinge-linux
+          path: |
+            qianfu/build/installer/*.AppImage
+            qianfu/build/installer/*.deb
+          retention-days: 30

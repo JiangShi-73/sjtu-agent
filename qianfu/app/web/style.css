@@ -200,6 +200,13 @@ button.danger { color: var(--danger); border-color: #f0c9c4; }
 .hw-item.overdue .d { color: #b6bcc6; }
 .hw-empty { color: #b6bcc6; font-size: 12px; padding: 14px 2px; text-align: center; }
 
+.setup-tip {
+  margin: 8px 12px; padding: 9px 12px; border-radius: 8px;
+  background: #fff7e6; color: #8a5a00; font-size: 12px;
+  border: 1px solid #ffe0a3; cursor: pointer; line-height: 1.5;
+}
+.setup-tip:hover { background: #fff1d6; }
+
 .pick-bar {
   position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%);
   background: #1f2430; color: #fff; border-radius: 999px;

@@ -840,6 +840,7 @@ async function openFeeds() {
   await renderFeeds();
   await renderColleges();
   await renderJaccount();
+  await checkSetup();
   await renderCourses();
   $("#feeds-dlg").showModal();
 }
@@ -860,6 +861,22 @@ $("#jwc-sync").onclick = async () => {
     $("#jwc-status").textContent = "失败：" + e;
   }
 };
+
+async function checkSetup() {
+  try {
+    const r = await api("/setup/quick");
+    const tip = $("#setup-tip");
+    if (r.ready) {
+      tip.hidden = true;
+      return;
+    }
+    tip.hidden = false;
+    tip.textContent = "还差一步：" + r.next;
+    tip.onclick = () => $("#btn-feeds").click();
+  } catch (e) {
+    /* 自检失败不影响用 */
+  }
+}
 
 async function renderJaccount() {
   const box = $("#ja-list");

@@ -28,10 +28,12 @@ const ROOT = PACKAGED
   ? path.join(process.resourcesPath, "xinge")
   : path.resolve(__dirname, "..", "..");
 
-// 打包后自带嵌入式 Python，不依赖系统装没装
+// 打包后自带便携 Python，不依赖系统装没装
 const PYTHON = PACKAGED
-  ? path.join(ROOT, "python", process.platform === "win32" ? "python.exe" : "python")
-  : process.env.XINGE_PYTHON || "python";
+  ? process.platform === "win32"
+    ? path.join(ROOT, "python", "python.exe")
+    : path.join(ROOT, "python", "bin", "python3")
+  : process.env.XINGE_PYTHON || (process.platform === "win32" ? "python" : "python3");
 
 let backend = null;
 let win = null;
