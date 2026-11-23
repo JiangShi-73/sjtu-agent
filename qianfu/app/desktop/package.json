@@ -5,64 +5,11 @@
   "main": "main.js",
   "scripts": {
     "start": "electron .",
-    "dist": "electron-builder --win nsis",
-    "dist:dir": "electron-builder --win --dir"
+    "dist:win": "cross-env XINGE_TARGET=win electron-builder --win nsis --config electron-builder.config.js",
+    "dist:linux": "cross-env XINGE_TARGET=linux electron-builder --linux AppImage deb --config electron-builder.config.js"
   },
   "devDependencies": {
     "electron": "^33.0.0",
     "electron-builder": "^25.1.8"
-  },
-  "build": {
-    "appId": "com.sjtu.xinge",
-    "productName": "信鸽 SJTU",
-    "copyright": "信鸽 SJTU",
-    "directories": {
-      "output": "../../build/installer",
-      "buildResources": "."
-    },
-    "files": [
-      "main.js",
-      "preload.js",
-      "xinge.ico",
-      "package.json"
-    ],
-    "extraResources": [
-      {
-        "from": "../../build/信鸽SJTU-完整版",
-        "to": "xinge",
-        "filter": [
-          "**/*",
-          "!**/*.log",
-          "!**/__pycache__/**",
-          "!**/*.pyc"
-        ]
-      }
-    ],
-    "win": {
-      "target": [
-        {
-          "target": "nsis",
-          "arch": [
-            "x64"
-          ]
-        }
-      ],
-      "icon": "xinge.ico",
-      "artifactName": "信鸽SJTU-安装包-${version}.${ext}",
-      "signAndEditExecutable": false
-    },
-    "nsis": {
-      "oneClick": false,
-      "perMachine": false,
-      "allowToChangeInstallationDirectory": true,
-      "createDesktopShortcut": true,
-      "createStartMenuShortcut": true,
-      "shortcutName": "信鸽 SJTU",
-      "installerLanguages": [
-        "zh_CN"
-      ],
-      "language": "2052"
-    },
-    "asar": true
   }
 }
