@@ -34,6 +34,45 @@ def auth_status():
     return qrlogin.status()
 
 
+@router.post("/auth/logout")
+def auth_logout():
+    """退出 jAccount：清掉本机保存的所有登录态。
+
+    不是关软件——清完回到登录页，下次要重新扫码。
+    """
+    import os
+
+    home = Path(os.path.expanduser("~")) / ".xinge"
+    removed = []
+
+    # 这些文件里存着各站的会话
+    for name in ("session.json", "shuiyuan.json", "jwc.json", "aihaoke.json", "impsa.json"):
+        path = home / name
+        if path.exists():
+            try:
+                path.unlink()
+                removed.append(name)
+            except OSError:
+                pass
+
+    # config 里的 token 也要清
+    cfg_path = home / "config.json"
+    if cfg_path.exists():
+        import json
+
+        try:
+            cfg = json.loads(cfg_path.read_text(encoding="utf-8"))
+            for key in ("canvas_token", "sjtu_api_key", "aihaoke_token"):
+                cfg.pop(key, None)
+            cfg_path.write_text(
+                json.dumps(cfg, ensure_ascii=False, indent=2), encoding="utf-8"
+            )
+        except (OSError, json.JSONDecodeError):
+            pass
+
+    return {"ok": True, "removed": removed}
+
+
 @router.post("/auth/qr/start")
 def auth_qr_start():
     from .. import qrlogin

@@ -840,6 +840,7 @@ async function openFeeds() {
   await renderFeeds();
   await renderColleges();
   await renderJaccount();
+  await checkSetup();
   await renderCourses();
   $("#feeds-dlg").showModal();
 }
@@ -860,6 +861,134 @@ $("#jwc-sync").onclick = async () => {
     $("#jwc-status").textContent = "失败：" + e;
   }
 };
+
+// ---------- 登录页 ----------
+
+async function showLoginIfNeeded() {
+  let s;
+  try {
+    s = await api('/auth/status');
+  } catch (e) {
+    return false;
+  }
+  if (s.logged_in) {
+    $('#login-page').hidden = true;
+    return false;
+  }
+  $('#login-page').hidden = false;
+  $('#login-body').hidden = false;
+  $('#login-qr-box').hidden = true;
+  return true;
+}
+
+let qrTimer = null;
+
+$('#login-go').onclick = async () => {
+  $('#login-go').disabled = true;
+  $('#login-go').textContent = '正在生成二维码…';
+  try {
+    const r = await api('/auth/qr/start', { method: 'POST' });
+
+    if (r.already) {
+      boot();
+      return;
+    }
+
+    $('#login-body').hidden = true;
+    $('#login-qr-box').hidden = false;
+    $('#login-qr-img').src = 'data:image/png;base64,' + r.png;
+    $('#login-qr-tip').textContent = '等待扫码…';
+    startQrPoll(r.id, r.version);
+  } catch (e) {
+    $('#login-go').disabled = false;
+    $('#login-go').textContent = '用 jAccount 登录';
+    alert('生成二维码失败：' + e);
+  }
+};
+
+function startQrPoll(sid, version) {
+  clearInterval(qrTimer);
+  let seen = version || 0;
+
+  qrTimer = setInterval(async () => {
+    try {
+      const s = await api('/auth/qr/status/' + sid);
+
+      // 二维码会自动刷新，换一张
+      if (s.png && s.version !== seen) {
+        seen = s.version;
+        $('#login-qr-img').src = 'data:image/png;base64,' + s.png;
+      }
+
+      if (s.state === 'ok') {
+        clearInterval(qrTimer);
+        $('#login-qr-tip').textContent = '登录成功，正在加载…';
+        setTimeout(() => boot(), 800);
+        return;
+      }
+
+      if (s.state === 'timeout' || s.state === 'error' || s.state === 'missing') {
+        clearInterval(qrTimer);
+        $('#login-qr-tip').textContent =
+          s.state === 'timeout' ? '二维码过期了，重新试一次' : '登录失败：' + (s.error || s.state);
+        $('#login-body').hidden = false;
+        $('#login-qr-box').hidden = true;
+        $('#login-go').disabled = false;
+        $('#login-go').textContent = '重新登录';
+      }
+    } catch (e) {
+      /* 网络抖动，继续轮询 */
+    }
+  }, 2000);
+}
+
+$('#login-cancel').onclick = async () => {
+  clearInterval(qrTimer);
+  $('#login-body').hidden = false;
+  $('#login-qr-box').hidden = true;
+  $('#login-go').disabled = false;
+  $('#login-go').textContent = '用 jAccount 登录';
+};
+
+$('#btn-logout').onclick = async () => {
+  if (!window.confirm('退出 jAccount 登录？退出后要重新扫码才能看作业和公告。')) return;
+  try {
+    await api('/auth/logout', { method: 'POST' });
+  } catch (e) {
+    alert('退出失败：' + e);
+    return;
+  }
+  clearInterval(qrTimer);
+  $('#login-page').hidden = false;
+  $('#login-body').hidden = false;
+  $('#login-qr-box').hidden = true;
+  $('#login-go').disabled = false;
+  $('#login-go').textContent = '用 jAccount 登录';
+};
+
+async function boot() {
+  if (await showLoginIfNeeded()) return;
+  await loadBoards();
+  await loadItems();
+  await renderJaccount();
+  await checkSetup();
+}
+
+async function checkSetup() {
+  try {
+    const r = await api("/setup/quick");
+    const tip = $("#setup-tip");
+    if (r.ready) {
+      tip.hidden = true;
+      return;
+    }
+    tip.hidden = false;
+    tip.textContent = "还差一步：" + r.next;
+    tip.onclick = () => $("#btn-feeds").click();
+  } catch (e) {
+    /* 自检失败不影响用 */
+  }
+}
 
 async function renderJaccount() {
   const box = $("#ja-list");
@@ -1447,19 +1576,6 @@ $("#cal-show-plan").onclick = () => {
   renderDayList();
 };
 
-// 退出：关窗口，Electron 那边 window-all-closed 会连同后端一起退
-$("#btn-read-all").onclick = async () => {
-  const scope = state.board && state.board !== "__archive" ? "?board=" + state.board : "";
-  if (!window.confirm("把当前板块的未读全部标为已读？")) return;
-  try {
-    const r = await api("/items/read-all" + scope, { method: "POST" });
-    $("#status").textContent = "标了 " + r.marked + " 条";
-    loadBoards();
-    loadItems();
-  } catch (e) {
-    alert("失败：" + e);
-  }
-};
 
 $("#btn-select").onclick = () => {
   state.selecting = !state.selecting;
@@ -1468,10 +1584,6 @@ $("#btn-select").onclick = () => {
   if (!state.selecting) state.picked = [];
   updatePickBar();
   loadItems();
-};
-
-$("#btn-quit").onclick = () => {
-  if (window.confirm("退出信鸽？后台服务会一起关掉。")) window.close();
 };
 
 // 清理：把过期条目归档，存档区待满一周的删掉
@@ -1494,9 +1606,5 @@ $("#cal-prev").onclick = $("#rail-prev").onclick;
 $("#cal-next").onclick = $("#rail-next").onclick;
 $("#cal-today").onclick = () => { state.month = new Date(); state.selected = todayStr(); loadCalendar(); };
 
-ensureLogin();
-loadBoards();
-loadItems();
-loadCalendar();
-loadHomework();
-connectEvents();
+// 启动：先看登没登录，没登录就停在登录页
+boot();
