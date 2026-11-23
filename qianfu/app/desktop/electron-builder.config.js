@@ -62,8 +62,8 @@ const linux = {
   ...common,
   linux: {
     target: [
-      { target: "AppImage", arch: ["x64"] },
-      { target: "deb", arch: ["x64"] },
+      { target: "AppImage", arch: ["x64", "arm64"] },
+      { target: "deb", arch: ["x64", "arm64"] },
     ],
     category: "Utility",
     icon: "xinge.png",

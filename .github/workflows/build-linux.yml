@@ -8,7 +8,11 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [x64, arm64]
 
     steps:
       - uses: actions/checkout@v4
@@ -21,25 +25,29 @@ jobs:
         with:
           node-version: '20'
 
-      - name: 装依赖
+      - name: 装系统依赖
         run: |
           sudo apt-get update
           sudo apt-get install -y libfuse2 rpm
           python -m pip install --upgrade pip
 
-      - name: 打 Linux 运行时
+      - name: 打 Linux 运行时（${{ matrix.arch }}）
         working-directory: qianfu
+        env:
+          XINGE_ARCH: ${{ matrix.arch }}
         run: python scripts/build_linux.py
 
       - name: 打安装包
         working-directory: qianfu/app/desktop
+        env:
+          XINGE_TARGET: linux
         run: |
           npm install --no-audit --no-fund
-          npm run dist:linux
+          npx electron-builder --linux AppImage deb --${{ matrix.arch }} --config electron-builder.config.js
 
       - uses: actions/upload-artifact@v4
         with:
-          name: xinge-linux
+          name: xinge-linux-${{ matrix.arch }}
           path: |
             qianfu/build/installer/*.AppImage
             qianfu/build/installer/*.deb
