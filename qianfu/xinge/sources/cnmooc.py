@@ -31,6 +31,7 @@ import html as htmllib
 import json
 import os
 import re
+import threading
 import time
 from datetime import date, datetime
 
@@ -144,11 +145,17 @@ def parse_course_cards(html: str) -> list[dict]:
 # JSESSIONID，SSO 成功后站点才会补发 moocsk。
 
 
+# 同一进程里并发开两个浏览器走 SSO 会互相把会话挤掉（实测），串行化
+_BROWSER_LOCK = threading.Lock()
+
+
 class CnmoocLoginExpired(RuntimeError):
     """会话失效：请求被踢回 /home/login.mooc。"""
 
 
 def reason_text(reason: str) -> str:
+    if reason == "ok":
+        return ""
     return REASON_TEXT.get(reason) or REASON_TEXT["error"]
 
 
@@ -353,14 +360,40 @@ def _read_cards(page, wait_ms: int = 15000) -> dict:
     return {"logged_in": True, "url": url, "cards": cards}
 
 
-def _open_courses(page, goto_timeout_ms: int = 15000) -> dict:
+def _open_courses(page, goto_timeout_ms: int = 15000, attempts: int = 2) -> dict:
     """打开课程页并读卡。
 
-    注意：会话失效时这个请求可能被服务端拖住（实测 45s 都不返回），
-    所以 goto 超时给短一点，超时后按当前 URL 判断有没有被踢回登录页。
+    注意：
+      * 会话失效时这个请求可能被服务端拖住（实测 45s 都不返回），所以
+        goto 超时给短一点，超时后按当前 URL 判断有没有被踢回登录页。
+      * 刚 SSO 完第一次开课程页时，AJAX 偶尔会卡住（第二页才出卡），
+        登录成功但没读到卡时重开一次，别把「慢」误判成「没有课」。
     """
-    _goto(page, MY_COURSES, timeout_ms=goto_timeout_ms)
-    return _read_cards(page)
+    state: dict = {"logged_in": False, "url": page.url, "cards": []}
+    for attempt in range(attempts):
+        _goto(page, MY_COURSES, timeout_ms=goto_timeout_ms)
+        state = _read_cards(page, wait_ms=15000 if attempt == 0 else 8000)
+        if not state["logged_in"]:
+            return state                      # 被踢回登录页，交给上层走 SSO
+        if state["cards"]:
+            return state
+        if attempt + 1 < attempts:
+            try:
+                page.wait_for_timeout(1200)
+            except Exception:  # noqa: BLE001
+                pass
+    return state
+
+
+def _cookies_from_context(ctx) -> dict:
+    out: dict[str, str] = {}
+    try:
+        for cookie in ctx.cookies():
+            if SITE_DOMAIN in (cookie.get("domain") or ""):
+                out[cookie["name"]] = cookie["value"]
+    except Exception:  # noqa: BLE001
+        return {}
+    return out
 
 
 def _finish(ctx, state: dict) -> dict:
@@ -413,7 +446,6 @@ def _probe_with_browser(browser, jar: dict) -> dict:
         _close_ctx(ctx)
 
 
-
 def _browser_probe(jar: dict) -> dict:
     try:
         from playwright.sync_api import sync_playwright
@@ -423,18 +455,19 @@ def _browser_probe(jar: dict) -> dict:
         return _result("no_playwright", "import playwright 失败")
 
     try:
-        with sync_playwright() as p:
-            try:
-                browser = launch(p, headless=True)
-            except RuntimeError as exc:
-                return _result("no_browser", str(exc)[:300])
-            try:
-                return _probe_with_browser(browser, jar)
-            finally:
+        with _BROWSER_LOCK:
+            with sync_playwright() as p:
                 try:
-                    browser.close()
-                except Exception:  # noqa: BLE001
-                    pass
+                    browser = launch(p, headless=True)
+                except RuntimeError as exc:
+                    return _result("no_browser", str(exc)[:300])
+                try:
+                    return _probe_with_browser(browser, jar)
+                finally:
+                    try:
+                        browser.close()
+                    except Exception:  # noqa: BLE001
+                        pass
     except Exception as exc:  # noqa: BLE001 —— 浏览器/网络异常都不能让接口 500
         return _result("error", f"{type(exc).__name__}: {exc}"[:300])
 
@@ -529,6 +562,7 @@ class CnmoocSource:
         except httpx.HTTPError as exc:
             report.ok = False
             report.error = str(exc)
+            report.elapsed_ms = int((datetime.now() - started).total_seconds() * 1000)
             return report
 
         if errors:
@@ -538,7 +572,10 @@ class CnmoocSource:
 
     def _fetch_messages(self, client: httpx.Client, report: FetchReport) -> None:
         for page in range(1, self.pages + 1):
-            resp = client.get(MESSAGE_LIST.format(page=page), timeout=20)
+            try:
+                resp = client.get(MESSAGE_LIST.format(page=page), timeout=20)
+            except httpx.HTTPError:
+                break                      # 翻页慢/超时就停，别拖垮整次抓取
             _check_logged_in(resp)
             if resp.status_code != 200:
                 break
