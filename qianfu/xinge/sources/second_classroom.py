@@ -48,13 +48,72 @@ class SecondClassroomSource:
     def fetch(self) -> FetchReport:
         started = datetime.now()
         report = FetchReport(source=self.key)
+
+        # 首选：直接从活动平台拿（带 jAccount 就能读，不需要 API Key）
+        # 好处是有 id、能拼详情页，还带活动时间/报名时间/已报名人数
+        try:
+            from .activity_portal import detail_url, fetch_activities
+
+            activities = fetch_activities(self.session)
+        except Exception:                          # noqa: BLE001
+            activities = []
+
+        if activities:
+            for raw in activities:
+                name = (raw.get("name") or "").strip()
+                if not name:
+                    continue
+                act_time = raw.get("activity_time") or ["", ""]
+                sign_time = raw.get("registration_time") or ["", ""]
+                try:
+                    aid = int(raw.get("id"))
+                except (TypeError, ValueError):
+                    aid = str(raw.get("id") or "")
+
+                report.items.append(
+                    Item(
+                        source=self.key,
+                        uid=f"portal-{aid}",
+                        title=name,
+                        url=detail_url(aid),
+                        summary="",
+                        category="第二课堂",
+                        published=_parse(act_time[0] if act_time else ""),
+                        deadline=_parse(sign_time[1] if len(sign_time) > 1 else ""),
+                        extra={
+                            "board": "event",
+                            "place": raw.get("address") or "",
+                            "sponsor": raw.get("sponsor") or "",
+                            "presenter": raw.get("presenter") or "",
+                            "start": act_time[0] if act_time else "",
+                            "end": act_time[1] if len(act_time) > 1 else "",
+                            "signup_start": sign_time[0] if sign_time else "",
+                            "signup_end": sign_time[1] if len(sign_time) > 1 else "",
+                            "signed_up": raw.get("signed_up_num"),
+                            "capacity": raw.get("person_num"),
+                            "image": raw.get("img") or "",
+                            "detail_id": aid,
+                        },
+                    )
+                )
+
+            report.elapsed_ms = int((datetime.now() - started).total_seconds() * 1000)
+            return report
+
+        # 退回：开放数据接口（需要 X-Api-Key，信息比平台少）
+        report = self._fetch_open_api(started)
+        if not report.ok and not report.items:
+            report.error = (
+                "读不到第二课堂活动：jAccount 没登录，或活动平台换不到令牌。"
+                "先在「订阅」里点「全部登录一遍」。"
+            )
+        return report
+
+    def _fetch_open_api(self, started) -> FetchReport:
+        report = FetchReport(source=self.key)
         if not self.api_key:
             report.ok = False
-            report.error = (
-                "还没配第二课堂的 API Key。"
-                "去 agentsquare.sjtu.edu.cn 点「申请 Key」，"
-                "然后在「机器人」弹窗里填进去"
-            )
+            report.error = "活动平台读不到，且没有 SJTU_API_KEY"
             return report
 
         try:
@@ -70,7 +129,6 @@ class SecondClassroomSource:
                 report.error = str(payload.get("message"))
                 return report
 
-            # 批内合并：同一活动保留报名截止最晚的那条
             merged: dict[str, dict] = {}
             for raw in payload.get("data") or []:
                 fp = _fingerprint(raw)
@@ -86,7 +144,6 @@ class SecondClassroomSource:
                         source=self.key,
                         uid=fp,
                         title=(raw.get("name") or "").strip(),
-                        # displayUrl 目前恒为 null，退回平台首页
                         url=(raw.get("displayUrl") or "").strip() or PORTAL,
                         summary=(raw.get("introduction") or "").replace("\n", " ")[:200],
                         category=raw.get("activityTypeName") or "",
@@ -100,7 +157,6 @@ class SecondClassroomSource:
                             "signup": raw.get("signupMethod") or "",
                             "signup_start": raw.get("signupStartTime") or "",
                             "signup_end": raw.get("signupEndTime") or "",
-                            "start": raw.get("startTime") or "",
                             "end": raw.get("endTime") or "",
                             "presenter": raw.get("presenter") or "",
                             "presenter_bio": raw.get("presenterBio") or "",
@@ -113,27 +169,6 @@ class SecondClassroomSource:
             report.ok = False
             report.error = str(exc)
 
-        # 补详情页地址：开放接口没有 id，得去活动平台要。
-        # 拿不到就算了，不影响列表本身。
-        if report.items:
-            try:
-                from .activity_portal import activity_index
-
-                index = activity_index(self.session, {i.title for i in report.items})
-                hit = 0
-                for item in report.items:
-                    found = index.get(item.title)
-                    if found:
-                        item.url = found["url"]
-                        item.extra.update(found.get("props") or {})
-                        item.extra["signed_up"] = found.get("signed_up_num")
-                        item.extra["capacity"] = found.get("person_num")
-                        hit += 1
-                if hit:
-                    report.error = (report.error + " " if report.error else "") + f"详情页 {hit}/{len(report.items)}"
-            except Exception:
-                pass
-
         report.elapsed_ms = int((datetime.now() - started).total_seconds() * 1000)
         return report
 
@@ -142,6 +177,6 @@ def _parse(value: str | None) -> datetime | None:
     if not value:
         return None
     try:
-        return datetime.strptime(value, "%Y-%m-%d %H:%M:%S")
+        return datetime.strptime(str(value)[:19], "%Y-%m-%d %H:%M:%S")
     except ValueError:
         return None
