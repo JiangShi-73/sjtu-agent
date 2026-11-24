@@ -41,11 +41,19 @@ def quick_status():
 
     checks = []
 
+    # 看真实登录态，不能只看文件在不在——扫码失败也会留下空 session.json
+    try:
+        from .. import qrlogin
+
+        canvas_ok = bool(qrlogin.status().get("logged_in"))
+    except Exception:                             # noqa: BLE001
+        canvas_ok = bool(cfg.get("canvas_token"))
+
     checks.append(
         {
             "key": "canvas",
             "name": "Canvas 登录",
-            "ok": bool(cfg.get("canvas_token")) or (home / "session.json").exists(),
+            "ok": canvas_ok,
             "hint": "点「订阅」→「扫码登录」，用 jAccount 扫一次。",
             "required": True,
         }

@@ -327,6 +327,12 @@ class XingePlugin(Star):
             lines.append((p.get("text") or "")[:280])
         yield event.plain_result("\n".join(lines)[:1800])
 
+    @filter.command("日程")
+    async def schedule(self, event: AstrMessageEvent, arg: str = ""):
+        """和 /日历 同一个。"""
+        async for r in self.calendar(event, arg):
+            yield r
+
     @filter.command("日历")
     async def calendar(self, event: AstrMessageEvent, arg: str = ""):
         view = "week" if "周" in arg else ("day" if ("日" in arg or "天" in arg) else "month")
