@@ -172,6 +172,34 @@
 
     <div id="bot-status" class="bot-status"></div>
 
+<h3 class="section">提醒</h3>
+<p class="hint">Bot 推送和 App 内的日程刷新是两件事，可以分别开关。</p>
+<div class="field-row">
+  <label class="switch"><input type="checkbox" id="rem-bot-enabled" /><span>Bot 主动推送</span></label>
+  <label class="switch"><input type="checkbox" id="rem-app-enabled" /><span>App 内日程刷新</span></label>
+</div>
+<div class="field-row">
+  <label class="field"><span>日程提前（分钟）</span><input id="rem-adv-event" type="number" min="0" max="1440" /></label>
+  <label class="field"><span>作业提前（小时）</span><input id="rem-adv-hw" type="number" min="0" max="720" /></label>
+</div>
+<div class="field-row">
+  <label class="field"><span>作业再提醒（小时，0=关）</span><input id="rem-adv-hw2" type="number" min="0" max="720" /></label>
+  <label class="field"><span>每小时最多</span><input id="rem-cap" type="number" min="1" max="20" /></label>
+</div>
+<div class="field-row">
+  <label class="field"><span>静默开始</span><input id="rem-silence-start" placeholder="23:00" /></label>
+  <label class="field"><span>静默结束</span><input id="rem-silence-end" placeholder="07:30" /></label>
+</div>
+<div class="field">
+  <label>推送给谁</label>
+  <select id="rem-target-select"><option value="">（自动：第一个联系人）</option></select>
+</div>
+<div class="btn-row">
+  <button id="rem-save" class="primary">保存提醒设置</button>
+  <button id="rem-test">发一条测试</button>
+  <span id="rem-msg" class="hint"></span>
+</div>
+
     <div class="field">
       <label>AppID</label>
       <input id="bot-appid" placeholder="一串数字，例如 1906503071" />

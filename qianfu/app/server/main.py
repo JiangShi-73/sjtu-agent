@@ -68,6 +68,15 @@ async def lifespan(app: FastAPI):
     db.init()
     logging.getLogger("xinge.app").info("服务启动，数据库 %s", db.DB_PATH)
 
+    # 提醒：启动时把未来 7 天内该提醒的补齐（幂等，重启不会重复推）
+    try:
+        from . import reminders
+
+        stats = reminders.mend(days=7)
+        logging.getLogger("xinge.app").info("提醒补扫完成：%s", stats)
+    except Exception as exc:                      # noqa: BLE001
+        logging.getLogger("xinge.app").warning("提醒补扫失败：%s", exc)
+
     # 自动抓取 + 自动归档
     try:
         from . import scheduler

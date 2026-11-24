@@ -25,8 +25,10 @@ def list_events(
         today = date.today()
         start = (today - timedelta(days=7)).isoformat()
         end = (today + timedelta(days=45)).isoformat()
+    events = db.list_events(start, end)
     return {
-        "events": db.list_events(start, end),
+        # done 本来是 0/1，这里统一成布尔给前端划线用
+        "events": [{**e, "done": bool(e.get("done"))} for e in events],
         "derived": db.items_with_deadline(start, end),
     }
 

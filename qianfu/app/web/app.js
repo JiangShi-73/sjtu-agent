@@ -387,6 +387,41 @@ function showFeed() {
 
 /* ---------------- 日历 ---------------- */
 
+// ---- 日程自动刷新 ----
+// 后端每 30 分钟抓一次数据，页面不能一直等用户手动点
+let calTimer = null;
+let calBusy = false;
+
+async function refreshCalendarSoon(delay = 0) {
+  if (calBusy) return;
+  calBusy = true;
+  try {
+    await new Promise((r) => setTimeout(r, delay));
+    await loadCalendar();
+  } catch (e) {
+    // 静默失败，下一轮再来
+  } finally {
+    calBusy = false;
+  }
+}
+
+function appNotifyOn() {
+  return localStorage.getItem("xinge.appNotify") !== "0";
+}
+
+function startCalendarAutoRefresh() {
+  if (calTimer) return;
+  calTimer = setInterval(() => {
+    if (document.hidden) return;
+    if (!appNotifyOn()) return;      // 关掉 App 通知就别轮询
+    refreshCalendarSoon();
+  }, 60000);
+  document.addEventListener("visibilitychange", () => {
+    if (!document.hidden) refreshCalendarSoon(200);
+  });
+  window.addEventListener("focus", () => refreshCalendarSoon(200));
+}
+
 async function loadCalendar() {
   if (!state.selected) state.selected = todayStr();
   const y = state.month.getFullYear();
@@ -483,6 +518,12 @@ function calendarEvents(ds) {
   });
 }
 
+// 带截止时间的条目（Canvas 作业 / 实验 / 慕课 / 知途）画在日历上
+function derivedEvents(ds) {
+  if (!state.showPlan) return [];
+  return state.derived.filter((x) => String(x.deadline || "").slice(0, 10) === ds);
+}
+
 function renderBig() {
   const { y, m, rows, gridStart } = monthGrid();
   $("#cal-label").textContent = y + " 年 " + (m + 1) + " 月";
@@ -513,10 +554,24 @@ function renderBig() {
 
     for (const ev of evs) {
       const chip = document.createElement("div");
-      chip.className = "chip manual";
+      chip.className = "chip manual" + (ev.done ? " done" : "");
       chip.textContent = (ev.start_time ? ev.start_time + " " : "") + ev.title;
       chip.title = [ev.start_time, ev.end_time, ev.location].filter(Boolean).join(" ");
       chip.onclick = (e) => { e.stopPropagation(); openDialog(ev); };
+      list.appendChild(chip);
+    }
+
+    for (const dv of derivedEvents(ds)) {
+      const chip = document.createElement("div");
+      chip.className = "chip derived" + (dv.done ? " done" : "");
+      const hhmm = String(dv.deadline || "").slice(11, 16);
+      chip.textContent = (hhmm ? "截止 " + hhmm + " " : "") + dv.title;
+      chip.title = (dv.category || "") + " · " + (dv.deadline || "");
+      if (dv.url) {
+        chip.onclick = (e) => { e.stopPropagation(); window.open(dv.url, "_blank"); };
+      } else {
+        chip.onclick = (e) => e.stopPropagation();
+      }
       list.appendChild(chip);
     }
 
@@ -972,6 +1027,11 @@ async function boot() {
   await loadItems();
   await renderJaccount();
   await checkSetup();
+  // 实时推送：抓取到新条目时后端会通过 WebSocket 通知，不用手动刷新
+  connectEvents();
+  // 日程别等用户手动刷新：每 60 秒自动拉一次，切回窗口也拉
+  await loadCalendar().catch(() => {});
+  startCalendarAutoRefresh();
 }
 
 async function checkSetup() {
@@ -1292,8 +1352,11 @@ async function diagnose() {
   $("#diag").showModal();
 }
 
+let eventsSocket = null;
 function connectEvents() {
+  if (eventsSocket && eventsSocket.readyState <= 1) return;
   const ws = new WebSocket("ws://" + location.host + "/ws");
+  eventsSocket = ws;
   ws.onmessage = (ev) => {
     const msg = JSON.parse(ev.data);
     if (msg.type === "items.added") { loadBoards(); loadItems(); loadCalendar(); loadHomework(); }
@@ -1316,9 +1379,44 @@ async function openBotDialog() {
   await refreshBotStatus();
 }
 
+async function refreshReminderSettings() {
+  const msg = $("#rem-msg");
+  try {
+    const [s, contacts, target] = await Promise.all([
+      api("/bot/reminders/settings"),
+      api("/bot/contacts").catch(() => []),
+      api("/bot/reminders/target").catch(() => ({})),
+    ]);
+
+    $("#rem-bot-enabled").checked = !!Number(s.reminder_enabled ?? 1);
+    $("#rem-adv-event").value = s.reminder_advance_event ?? 60;
+    $("#rem-adv-hw").value = s.reminder_advance_hw ?? 24;
+    $("#rem-adv-hw2").value = s.reminder_advance_hw2 ?? 2;
+    $("#rem-cap").value = s.reminder_hourly_cap ?? 3;
+    $("#rem-silence-start").value = s.reminder_silence_start ?? "01:00";
+    $("#rem-silence-end").value = s.reminder_silence_end ?? "07:30";
+    $("#rem-app-enabled").checked = localStorage.getItem("xinge.appNotify") !== "0";
+
+    const sel = $("#rem-target-select");
+    const cur = target.umo || "";
+    sel.innerHTML = '<option value="">（自动：第一个联系人）</option>';
+    (contacts || []).forEach((c) => {
+      const o = document.createElement("option");
+      o.value = c.umo || c.openid || "";
+      o.textContent = (c.nickname || "未命名") + " · " + String(o.value).slice(-8);
+      sel.appendChild(o);
+    });
+    sel.value = cur;
+    msg.textContent = cur ? "当前推送对象已设置" : "还没指定推送对象";
+  } catch (e) {
+    msg.textContent = "读取设置失败";
+  }
+}
+
 async function refreshBotStatus() {
   const box = $("#bot-status");
   box.innerHTML = "<div>读取中…</div>";
+  refreshReminderSettings();
 
   let s;
   try {
@@ -1451,6 +1549,44 @@ $("#agent-text").onkeydown = (e) => {
 
 $("#btn-bot").onclick = openBotDialog;
 $("#bot-close").onclick = () => $("#bot-dlg").close();
+
+$("#rem-save").onclick = async () => {
+  const msg = $("#rem-msg");
+  msg.textContent = "保存中…";
+  try {
+    await api("/bot/reminders/settings", {
+      method: "POST",
+      body: JSON.stringify({
+        reminder_enabled: $("#rem-bot-enabled").checked ? 1 : 0,
+        reminder_advance_event: Number($("#rem-adv-event").value) || 0,
+        reminder_advance_hw: Number($("#rem-adv-hw").value) || 0,
+        reminder_advance_hw2: Number($("#rem-adv-hw2").value) || 0,
+        reminder_hourly_cap: Number($("#rem-cap").value) || 3,
+        reminder_silence_start: $("#rem-silence-start").value.trim() || "01:00",
+        reminder_silence_end: $("#rem-silence-end").value.trim() || "07:30",
+      }),
+    });
+    const umo = $("#rem-target-select").value;
+    await api("/bot/reminders/target", { method: "POST", body: JSON.stringify({ umo }) });
+
+    // App 内刷新开关只影响前端，不碰 Bot
+    localStorage.setItem("xinge.appNotify", $("#rem-app-enabled").checked ? "1" : "0");
+    msg.textContent = "已保存";
+    await refreshReminderSettings();
+  } catch (e) {
+    msg.textContent = "保存失败：" + e;
+  }
+};
+$("#rem-test").onclick = async () => {
+  const msg = $("#rem-msg");
+  msg.textContent = "发送中…";
+  try {
+    const r = await api("/bot/reminders/test", { method: "POST" });
+    msg.textContent = r.ok ? "测试提醒已入队，最多 60 秒内送达" : "失败：" + (r.error || "未知");
+  } catch (e) {
+    msg.textContent = "失败：" + e;
+  }
+};
 
 $("#bot-save").onclick = async () => {
   const appid = $("#bot-appid").value.trim();

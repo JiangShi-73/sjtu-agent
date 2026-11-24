@@ -23,7 +23,7 @@ from datetime import date, datetime, timedelta
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import Response
 
-from .. import config, db, shots
+from .. import config, db, reminders, shots
 
 router = APIRouter(tags=["bot"])
 
@@ -71,6 +71,84 @@ def digest(since: str | None = None, limit: int = 30, only_unpushed: bool = True
 def ack(body: dict):
     ids = [int(i) for i in (body.get("ids") or []) if str(i).isdigit()]
     return {"ok": True, "marked": db.mark_pushed(ids)}
+
+
+# ---------------- 提醒队列（QQ 插件每 60 秒拉一次） ----------------
+
+@router.get("/bot/reminders/due")
+def reminders_due(limit: int = 10):
+    """到点要推的提醒。推完调 ack，插件靠 target_bound 判断有没有配置推送对象。"""
+    settings = reminders.get_settings()
+    rows = reminders.due(max(1, min(limit, 100)))
+    return {
+        "count": len(rows),
+        "target_bound": reminders.target_bound(),
+        "enabled": bool(settings["reminder_enabled"]),
+        "reminders": rows,
+    }
+
+
+@router.post("/bot/reminders/ack")
+def reminders_ack(body: dict):
+    """确认提醒：默认标成已推送；mode=skip / failed 标对应状态。"""
+    ids = [int(i) for i in (body.get("ids") or []) if str(i).isdigit()]
+    mode = str(body.get("mode") or "sent").strip().lower()
+    if mode == "skip":
+        marked = reminders.mark_skipped(ids)
+    elif mode in ("failed", "fail"):
+        marked = sum(reminders.mark_failed(i) for i in ids)
+    else:
+        marked = reminders.ack(ids)
+    return {"ok": True, "marked": marked}
+
+
+@router.get("/bot/reminders/target")
+def reminder_target():
+    """当前推送对象（QQ 私聊 umo）——App 的「推送对象」就读写这里。"""
+    return reminders.get_target()
+
+
+@router.post("/bot/reminders/target")
+def set_reminder_target(body: dict):
+    """手动指定推送对象；umo 传空串表示解绑。"""
+    return {"ok": True, "target": reminders.set_target(body.get("umo") or "")}
+
+
+@router.post("/bot/reminders/bind")
+def bind_reminder_target(body: dict):
+    """插件收到私聊时上报：维护「最近联系人」，并在没手动设过时自动绑定。
+    QQ 官方机器人拿不到 QQ 号，只有 openid；App 里从联系人列表点选即可。"""
+    umo = str(body.get("umo") or "").strip()
+    sender_id = str(body.get("sender_id") or "").strip()
+    nickname = str(body.get("nickname") or "").strip()
+    openid = str(body.get("openid") or "").strip() or sender_id
+    if not openid and ":" in umo:
+        openid = umo.rsplit(":", 1)[-1]
+    contact = db.upsert_bot_contact(openid, nickname) if openid else {}
+    result = reminders.bind_target(umo, sender_id=sender_id, nickname=nickname)
+    if contact:
+        result["contact"] = contact
+    return result
+
+
+@router.get("/bot/contacts")
+def bot_contacts(limit: int = 50):
+    """最近和机器人私聊过的人：App 的「推送对象」下拉列表读这里。"""
+    return db.list_bot_contacts(max(1, min(limit, 200)))
+
+
+# ---------------- 提醒参数（App 可改） ----------------
+
+@router.get("/bot/reminders/settings")
+def reminder_settings():
+    """提醒参数：总开关 / 提前量 / 静默时段 / 每小时上限。"""
+    return reminders.get_settings()
+
+
+@router.post("/bot/reminders/settings")
+def set_reminder_settings(body: dict):
+    """改提醒参数，返回改后的全量。改提前量/静默时段会自动重算 pending。"""
+    return reminders.set_settings(body or {})
 
 
 @router.get("/bot/deadlines")

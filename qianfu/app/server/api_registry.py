@@ -47,6 +47,8 @@ BOT_ENDPOINTS: dict[str, str] = {
     "/api/v1/bot/boards": "板块与未读数",
     "/api/v1/bot/digest": "待推送条目",
     "/api/v1/bot/ack": "标记已推送",
+    "/api/v1/bot/reminders": "到点提醒（due/ack/参数/推送对象）",
+    "/api/v1/bot/contacts": "推送联系人列表",
     "/api/v1/bot/deadlines": "未来截止",
     "/api/v1/bot/canvas": "Canvas 作业",
     "/api/v1/bot/cnmooc": "慕课作业",

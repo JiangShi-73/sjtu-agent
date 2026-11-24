@@ -20,16 +20,30 @@
 
 from __future__ import annotations
 
+import asyncio
 import re
 import time
-from datetime import date
+from datetime import date, datetime, timedelta
 
 import httpx
 from astrbot.api import logger
-from astrbot.api.event import AstrMessageEvent, filter
+from astrbot.api.event import AstrMessageEvent, MessageChain, filter
 from astrbot.api.star import Context, Star
 
 BASE = "http://127.0.0.1:8722/api/v1"
+
+# ---------- 主动提醒推送 ----------
+#
+# 后端每分钟把到点的提醒放进 due 队列，插件每 60 秒拉一次，主动私聊推给
+# 「推送对象」。推送对象不写死在插件里：用户在信鸽 App 里设置，插件只负责
+# 私聊时把 umo 上报给后端（/reminders/bind）、每轮读一次（/reminders/target）。
+REMINDER_INTERVAL = 60          # 轮询间隔（秒）
+REMINDER_BATCH = 10             # 每轮最多拉几条
+REMINDER_HOURLY_CAP = 3         # 兜底：同一小时最多推几条（实际读后端 settings）
+REMINDER_STALE_HOURS = 24       # fire_at 比现在早超过这个时间 → 丢弃，不补推
+REMINDER_RETRY_SECONDS = 600    # 推过但 ack 失败：这段时间只补 ack，不重复推
+QUIET_START_MIN = 23 * 60       # 兜底静默开始 23:00（实际读后端 settings）
+QUIET_END_MIN = 7 * 60 + 30     # 兜底静默结束 07:30（实际读后端 settings）
 
 # 每个会话最近一次列表，用来支持「回数字看详情」
 LAST: dict[str, list] = {}
@@ -55,6 +69,108 @@ async def _post(path: str, payload: dict | None = None, **params) -> dict:
         resp = await client.post(BASE + path, json=payload or {}, params=params)
         resp.raise_for_status()
         return resp.json()
+
+
+# 提醒轮询用的短超时版本：后端没起来时别让一轮卡上几分钟
+async def _rjson(path: str, **params) -> dict:
+    async with httpx.AsyncClient(timeout=10) as client:
+        resp = await client.get(BASE + path, params=params)
+        resp.raise_for_status()
+        return resp.json()
+
+
+async def _rpost(path: str, payload: dict) -> dict:
+    async with httpx.AsyncClient(timeout=15) as client:
+        resp = await client.post(BASE + path, json=payload)
+        resp.raise_for_status()
+        return resp.json()
+
+
+def _parse_dt(value) -> datetime | None:
+    """后端给的是本地时间串（2026-11-25T15:00:00），转成本地 naive datetime。"""
+    if not value:
+        return None
+    text = str(value).strip()
+    if text.endswith("Z"):
+        text = text[:-1] + "+00:00"
+    dt = None
+    try:
+        dt = datetime.fromisoformat(text)
+    except ValueError:
+        for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M", "%Y-%m-%d"):
+            try:
+                dt = datetime.strptime(text, fmt)
+                break
+            except ValueError:
+                continue
+    if dt is None:
+        return None
+    if dt.tzinfo is not None:                       # 带时区就换成机器本地时间
+        dt = dt.astimezone().replace(tzinfo=None)
+    return dt
+
+
+def _parse_hhmm(value, default: int) -> int:
+    """把 "23:00" / "7:30" / "23:00:00" 解析成分钟数；解析不了用兜底值。"""
+    if value is None:
+        return default
+    parts = str(value).strip().split(":")
+    if len(parts) < 2:
+        return default
+    try:
+        hour, minute = int(parts[0]), int(parts[1])
+    except ValueError:
+        return default
+    if not (0 <= hour <= 23 and 0 <= minute <= 59):
+        return default
+    return hour * 60 + minute
+
+
+def _in_quiet(now: datetime, start_min: int = QUIET_START_MIN,
+              end_min: int = QUIET_END_MIN) -> bool:
+    """静默时段判断，支持跨零点（默认 23:00–07:30）。start==end 视为不静默。"""
+    minutes = now.hour * 60 + now.minute
+    if start_min <= end_min:
+        return start_min <= minutes < end_min
+    return minutes >= start_min or minutes < end_min
+
+
+def _mask_umo(umo: str) -> str:
+    """default_1906503071:FriendMessage:abc123 → default_1906503071:FriendMessage:***c123"""
+    parts = (umo or "").split(":")
+    if len(parts) < 3:
+        return umo or "（空）"
+    return ":".join(parts[:-1]) + ":***" + parts[-1][-4:]
+
+
+def _reminder_text(item: dict, fire: datetime, now: datetime) -> str:
+    """单条提醒的推送文案。邮件和日程分开写。"""
+    title = str(item.get("title") or "").strip() or "提醒"
+    body = str(item.get("body") or "").strip()
+
+    if str(item.get("target_type") or "") == "mail":
+        lines = [f"📧 新邮件 · {title}"]
+        if body:
+            lines.append(body[:200])
+        return "\n".join(lines)
+
+    when = fire.strftime("%H:%M")
+    if fire.date() != now.date():
+        when = f"{fire.month}月{fire.day}日 {when}"
+    return f"⏰ {title}\n{when} {body}".rstrip()
+
+
+def _backlog_text(items: list) -> str:
+    """24 小时内、已经过期的多条提醒合并成一条补推。"""
+    lines = [f"补推：{len(items)} 条提醒"]
+    for item, fire in items:
+        title = str(item.get("title") or "").strip() or "提醒"
+        body = str(item.get("body") or "").strip()
+        if str(item.get("target_type") or "") == "mail":
+            lines.append(f"· 📧 {title}" + (f"：{body[:40]}" if body else ""))
+        else:
+            lines.append(f"· {fire.month}月{fire.day}日 {fire.strftime('%H:%M')} {title}")
+    return "\n".join(lines)
 
 
 def _sid(event: AstrMessageEvent) -> str:
@@ -174,6 +290,217 @@ def _nl_forget(event: AstrMessageEvent) -> None:
 class XingePlugin(Star):
     def __init__(self, context: Context):
         super().__init__(context)
+        self._push_task: asyncio.Task | None = None
+        self._hour_bucket = ""
+        self._hour_count = 0
+        # 已推但还没 ack 的提醒 id -> 推送时间，防 ack 失败时每分钟重复推
+        self._recent_pushed: dict[int, float] = {}
+        self._push_fail_streak = 0
+        self._loop_fail_streak = 0
+        self._target_error_logged = False
+        self._settings_error_logged = False
+
+    # ---------- 生命周期：起/停提醒推送循环 ----------
+    #
+    # 注意：绝对不能在本类里定义 __del__。AstrBot 的 star_manager 靠
+    # 「没有 __del__」来决定要不要调 terminate()，定义了就永远不会 terminate，
+    # 循环会泄漏并在插件重载后多开一份。
+
+    async def initialize(self) -> None:
+        """插件激活：起后台循环。"""
+        if self._push_task and not self._push_task.done():
+            return
+        self._push_task = asyncio.create_task(self._reminder_loop())
+        logger.info(
+            f"信鸽提醒推送已启动：每 {REMINDER_INTERVAL}s 拉一次 due，"
+            f"静默/每小时上限/开关读后端 settings"
+        )
+
+    async def terminate(self) -> None:
+        """插件禁用/重载：停循环。"""
+        task, self._push_task = self._push_task, None
+        if task and not task.done():
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
+        logger.info("信鸽提醒推送循环已停止")
+
+    # ---------- 提醒推送循环 ----------
+
+    async def _reminder_loop(self) -> None:
+        await asyncio.sleep(5)  # 等平台适配器和后端就绪，别启动瞬间刷一堆错
+        while True:
+            try:
+                await self._reminder_tick()
+                self._loop_fail_streak = 0
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:                # noqa: BLE001
+                self._loop_fail_streak += 1
+                # 连续失败别刷日志：第 1 次 + 之后每 30 次记一条
+                if self._loop_fail_streak == 1 or self._loop_fail_streak % 30 == 0:
+                    logger.warning(
+                        f"提醒轮询异常（连续 {self._loop_fail_streak} 次）：{exc}"
+                    )
+            await asyncio.sleep(REMINDER_INTERVAL)
+
+    async def _reminder_tick(self) -> None:
+        now = datetime.now()
+        settings = await self._reminder_settings()
+        if not settings["enabled"]:
+            return                                  # Bot 主动推送被用户关了（App 刷新不受影响）
+        if _in_quiet(now, settings["silence_start"], settings["silence_end"]):
+            return                                  # 静默时段：不推也不 ack
+
+        umo = await self._reminder_target()
+        if not umo:
+            return                                  # 还没绑定推送对象
+
+        data = await _rjson("/bot/reminders/due", limit=REMINDER_BATCH)
+        reminders = data.get("reminders") or []
+        if not reminders:
+            return
+
+        stale: list[int] = []                       # 过期 > 24h 或时间解析不了 → 丢弃
+        resend: list[int] = []                      # 推过但 ack 失败 → 只补 ack
+        fresh: list[tuple[dict, datetime]] = []     # 正常该推的
+
+        for item in reminders:
+            rid = item.get("id")
+            if rid is None:
+                continue
+            fire = _parse_dt(item.get("fire_at"))
+            if fire is None:
+                stale.append(rid)
+            elif now - fire > timedelta(hours=REMINDER_STALE_HOURS):
+                stale.append(rid)                   # 过期太久，不补推
+            elif self._was_pushed(rid):
+                resend.append(rid)
+            else:
+                fresh.append((item, fire))
+
+        if stale:
+            logger.info(f"丢弃过期提醒 {stale}（超过 {REMINDER_STALE_HOURS}h）")
+            await self._ack(stale, mode="skip")
+        if resend:
+            await self._ack(resend)
+        if not fresh:
+            return
+
+        self._hour_bucket_reset(now)
+        if self._hour_count >= settings["hourly_cap"]:
+            return                                  # 这个小时推够了，不 ack，下轮再来
+
+        if len(fresh) == 1:
+            item, fire = fresh[0]
+            text = _reminder_text(item, fire, now)
+        else:
+            text = _backlog_text(fresh)             # 24h 内过期的多条合并补推
+        ids = [item["id"] for item, _ in fresh]
+
+        if not await self._push(umo, text, ids):
+            return                                  # 发不出去：不 ack，下轮重试
+        self._hour_count += 1
+        for rid in ids:
+            self._recent_pushed[rid] = time.time()
+        if await self._ack(ids):
+            for rid in ids:
+                self._recent_pushed.pop(rid, None)
+
+    def _hour_bucket_reset(self, now: datetime) -> None:
+        bucket = now.strftime("%Y%m%d%H")
+        if bucket != self._hour_bucket:
+            self._hour_bucket = bucket
+            self._hour_count = 0
+
+    def _was_pushed(self, rid) -> bool:
+        ts = self._recent_pushed.get(rid)
+        if ts is None:
+            return False
+        if time.time() - ts > REMINDER_RETRY_SECONDS:
+            self._recent_pushed.pop(rid, None)
+            return False
+        return True
+
+    async def _reminder_settings(self) -> dict:
+        """每轮读后端配置：Bot 推送开关、静默时段、每小时上限都以 App 设置为准。"""
+        try:
+            data = await _rjson("/bot/reminders/settings")
+            self._settings_error_logged = False
+        except Exception as exc:                    # noqa: BLE001
+            if not self._settings_error_logged:     # 只记第一次，别每轮刷
+                logger.warning(f"读取推送设置失败（用兜底值，静默重试）：{exc}")
+                self._settings_error_logged = True
+            data = {}
+
+        data = data if isinstance(data, dict) else {}
+        enabled = data.get("reminder_enabled", 1)
+        if isinstance(enabled, str):
+            enabled = enabled.strip().lower() not in ("", "0", "false", "off", "no")
+        try:
+            cap = int(data.get("reminder_hourly_cap", REMINDER_HOURLY_CAP))
+        except (TypeError, ValueError):
+            cap = REMINDER_HOURLY_CAP
+        return {
+            "enabled": bool(enabled),
+            "silence_start": _parse_hhmm(
+                data.get("reminder_silence_start"), QUIET_START_MIN
+            ),
+            "silence_end": _parse_hhmm(
+                data.get("reminder_silence_end"), QUIET_END_MIN
+            ),
+            "hourly_cap": max(0, min(cap, 100)),
+        }
+
+    async def _reminder_target(self) -> str:
+        """每轮都从后端读推送对象：App 里改了立刻生效，插件不自己记。"""
+        try:
+            data = await _rjson("/bot/reminders/target")
+            self._target_error_logged = False
+        except Exception as exc:                    # noqa: BLE001
+            if not self._target_error_logged:       # 只记第一次，别每轮刷
+                logger.warning(f"读取推送对象失败（静默重试）：{exc}")
+                self._target_error_logged = True
+            return ""
+        return str((data or {}).get("umo") or "").strip()
+
+    async def _push(self, umo: str, text: str, ids: list[int]) -> bool:
+        """主动私聊推一条。失败不抛，交给下一轮重试。"""
+        try:
+            sent = await self.context.send_message(umo, MessageChain().message(text))
+        except Exception as exc:                    # noqa: BLE001
+            self._push_fail_streak += 1
+            if self._push_fail_streak == 1 or self._push_fail_streak % 30 == 0:
+                logger.warning(
+                    f"提醒推送失败（连续 {self._push_fail_streak} 次）：{exc}"
+                )
+            return False
+        if not sent:
+            self._push_fail_streak += 1
+            if self._push_fail_streak == 1 or self._push_fail_streak % 30 == 0:
+                logger.warning(
+                    f"提醒推送失败：没找到匹配平台（连续 {self._push_fail_streak} 次）"
+                )
+            return False
+        self._push_fail_streak = 0
+        logger.info(f"已推送提醒 {ids}：{text.splitlines()[0]}")
+        return True
+
+    async def _ack(self, ids: list[int], mode: str | None = None) -> bool:
+        ids = [int(rid) for rid in ids if rid is not None]
+        if not ids:
+            return True
+        payload: dict = {"ids": ids}
+        if mode:
+            payload["mode"] = mode              # mode=skip：过期太久，后端别再发
+        try:
+            await _rpost("/bot/reminders/ack", payload)
+            return True
+        except Exception as exc:                    # noqa: BLE001
+            logger.warning(f"提醒 ack 失败 {ids}：{exc}")
+            return False
 
     # ---------- 一个入口 ----------
 
@@ -444,6 +771,89 @@ class XingePlugin(Star):
         )
         _nl_silence(event)
 
+    # ---------- 推送对象绑定 ----------
+
+    @filter.event_message_type(filter.EventMessageType.PRIVATE_MESSAGE, priority=-100)
+    async def remember_umo(self, event: AstrMessageEvent):
+        """每条私聊都把 umo/昵称报给后端（群聊不报）。
+
+        后端用这些信息维护「最近联系人」列表，App 里就是从这个列表选推送对象；
+        是否覆盖已绑定的目标由后端决定，插件只管上报。
+        不 stop_event：这条消息照常走后面的指令/自然语言建日程。
+        """
+        umo = str(getattr(event, "unified_msg_origin", "") or "").strip()
+        if not umo:
+            return
+
+        try:
+            sender_id = str(event.get_sender_id() or "")
+            nickname = str(event.get_sender_name() or "")
+        except Exception:                           # noqa: BLE001
+            sender_id, nickname = "", ""
+
+        try:
+            await _rpost(
+                "/bot/reminders/bind",
+                {"umo": umo, "sender_id": sender_id, "nickname": nickname},
+            )
+            logger.info(f"推送对象已上报：{_mask_umo(umo)}（{nickname or '无昵称'}）")
+        except Exception as exc:                    # noqa: BLE001
+            logger.warning(f"上报推送对象失败（不影响聊天）：{_mask_umo(umo)} {exc}")
+
+    @filter.command("提醒")
+    async def reminder_status(self, event: AstrMessageEvent, arg: str = ""):
+        """/提醒：看推送对象绑定和推送状态。"""
+        now = datetime.now()
+        lines = ["信鸽提醒"]
+
+        bound = source = bound_at = ""
+        try:
+            data = await _rjson("/bot/reminders/target")
+            data = data or {}
+            bound = str(data.get("umo") or "").strip()
+            source = str(data.get("source") or "").strip()
+            bound_at = str(data.get("bound_at") or "").strip()
+        except Exception as exc:                    # noqa: BLE001
+            yield event.plain_result(f"后端没响应：{exc}")
+            return
+
+        if bound:
+            lines.append(f"推送对象：已绑定 {_mask_umo(bound)}")
+            extra = []
+            if source:
+                extra.append("手动设置" if source == "manual" else "自动绑定")
+            if bound_at:
+                extra.append(bound_at[:16])
+            if extra:
+                lines.append("（" + "，".join(extra) + "）")
+        else:
+            lines.append("推送对象：未绑定")
+            lines.append("在信鸽 App 的「机器人」设置里选一个最近联系人。")
+
+        settings = await self._reminder_settings()
+
+        try:
+            due = await _rjson("/bot/reminders/due", limit=REMINDER_BATCH)
+            count = due.get("count")
+            if count is None:
+                count = len(due.get("reminders") or [])
+            lines.append(f"现在到点待推：{int(count)} 条")
+        except Exception:                           # noqa: BLE001
+            pass
+
+        start, end = settings["silence_start"], settings["silence_end"]
+        quiet = _in_quiet(now, start, end)
+        self._hour_bucket_reset(now)
+        lines.append(f"Bot 主动推送：{'开' if settings['enabled'] else '关'}")
+        lines.append(f"本小时已推：{self._hour_count}/{settings['hourly_cap']}")
+        lines.append(
+            f"静默时段：{start // 60:02d}:{start % 60:02d}"
+            f"–{end // 60:02d}:{end % 60:02d}"
+            + ("（现在静默，不推）" if quiet else "")
+        )
+        lines.append(f"轮询：每 {REMINDER_INTERVAL} 秒")
+        yield event.plain_result("\n".join(lines))
+
     # ---------- 其它 ----------
 
     @filter.command("ddl")
@@ -559,6 +969,50 @@ class XingePlugin(Star):
         except Exception as exc:                      # noqa: BLE001
             logger.error(f"日历图渲染失败: {exc}")
             yield event.plain_result("日历渲染失败，稍后再试")
+            return
+
+        yield event.image_result(url)
+
+
+    @filter.command("活动图")
+    async def activity_shot(self, event: AstrMessageEvent, arg: str = ""):
+        """发第二课堂活动详情页截图。用法：/活动图 <序号> 或 /活动图 <活动id>"""
+        index = _num(arg)
+        if not index:
+            yield event.plain_result("用法：先 /活动 看列表，再 /活动图 2")
+            return
+
+        try:
+            data = await _json("/bot/second-classroom", limit=60)
+        except Exception as exc:                  # noqa: BLE001
+            yield event.plain_result(f"查询失败：{exc}")
+            return
+
+        items = data.get("items") or []
+        if not items:
+            yield event.plain_result("第二课堂暂无活动")
+            return
+
+        target = None
+        for it in items:
+            if it.get("id") == index:
+                target = it
+                break
+        if target is None:
+            if 1 <= index <= len(items):
+                target = items[index - 1]
+            else:
+                yield event.plain_result(f"只有 {len(items)} 条，没有第 {index} 条")
+                return
+
+        url = f"{BASE}/bot/activity/{target['id']}/shot.png"
+        try:
+            async with httpx.AsyncClient(timeout=180) as client:
+                resp = await client.get(url)
+                resp.raise_for_status()
+        except Exception as exc:                  # noqa: BLE001
+            logger.error(f"活动截图失败: {exc}")
+            yield event.plain_result("截图失败，稍后再试")
             return
 
         yield event.image_result(url)

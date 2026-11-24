@@ -11,9 +11,10 @@
 from __future__ import annotations
 
 import json
+import logging
 import sqlite3
 import time
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from pathlib import Path
 
 DATA_DIR = Path.home() / ".xinge"
@@ -73,6 +74,31 @@ CREATE TABLE IF NOT EXISTS events (
     created_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_events_date ON events(event_date);
+
+CREATE TABLE IF NOT EXISTS reminder (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    title       TEXT NOT NULL,
+    body        TEXT DEFAULT '',
+    fire_at     TEXT NOT NULL,
+    target_type TEXT DEFAULT 'custom',
+    target_id   INTEGER,
+    state       TEXT NOT NULL DEFAULT 'pending',
+    sent_at     TEXT,
+    retry       INTEGER NOT NULL DEFAULT 0,
+    created_at  TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_reminder_due ON reminder(state, fire_at);
+
+CREATE TABLE IF NOT EXISTS mail_seen (
+    mid     TEXT PRIMARY KEY,
+    seen_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS bot_contacts (
+    openid    TEXT PRIMARY KEY,
+    nickname  TEXT DEFAULT '',
+    last_seen TEXT
+);
 """
 
 DEFAULT_BOARDS = [
@@ -97,6 +123,59 @@ SOURCE_BOARD = {
     "college": "college",
     "shuiyuan": "shuiyuan",
 }
+
+# 只有这四个板块的条目会按 deadline 生成作业提醒（活动靠「加入日程」走 events）
+_REMINDER_BOARDS = ("course", "mooc", "zhitu", "lab")
+
+
+def _log() -> logging.Logger:
+    return logging.getLogger("xinge.db")
+
+
+def _after_event_created(event: dict) -> None:
+    """新建日程后按规则生成提醒（课表来源在 reminders 里跳过）。"""
+    if not event:
+        return
+    try:
+        from . import reminders
+
+        reminders.generate_for_event(event)
+    except Exception as exc:                      # noqa: BLE001
+        _log().warning("日程提醒生成失败：%s", exc)
+
+
+def _after_event_updated(event: dict, fields: dict) -> None:
+    """改了时间/标题/地点，把这条日程的旧提醒作废重排。"""
+    if not event or not ({"event_date", "start_time", "title", "location"} & set(fields)):
+        return
+    try:
+        from . import reminders
+
+        reminders.cancel_for("event", event.get("id"))
+        reminders.generate_for_event(event)
+    except Exception as exc:                      # noqa: BLE001
+        _log().warning("日程提醒更新失败：%s", exc)
+
+
+def _after_event_deleted(event_id: int) -> None:
+    try:
+        from . import reminders
+
+        reminders.cancel_for("event", event_id)
+    except Exception as exc:                      # noqa: BLE001
+        _log().warning("日程提醒清理失败：%s", exc)
+
+
+def _after_items_upserted(rows: list) -> None:
+    """条目入库后给作业板块生成提醒（幂等：同一 fire_at 不重复插）。"""
+    if not rows:
+        return
+    try:
+        from . import reminders
+
+        reminders.generate_for_items(rows)
+    except Exception as exc:                      # noqa: BLE001
+        _log().warning("作业提醒生成失败：%s", exc)
 
 
 def connect() -> sqlite3.Connection:
@@ -146,6 +225,7 @@ def upsert_items(items: list) -> int:
     conn = connect()
     now = datetime.now().isoformat(timespec="seconds")
     added = 0
+    remind_rows: list[dict] = []
     try:
         for it in items:
             board = (it.extra or {}).get("board") or SOURCE_BOARD.get(it.source, "custom")
@@ -174,9 +254,20 @@ def upsert_items(items: list) -> int:
                     (it.title, it.summary, it.url, it.category,
                      published, deadline, extra, it.source, it.uid),
                 )
+
+            # 作业提醒：只有这四个板块、且有截止时间的才排提醒
+            if board in _REMINDER_BOARDS and deadline:
+                row = conn.execute(
+                    """SELECT id, board, title, deadline
+                       FROM items WHERE source=? AND uid=?""",
+                    (it.source, it.uid),
+                ).fetchone()
+                if row:
+                    remind_rows.append(dict(row))
         conn.commit()
     finally:
         conn.close()
+    _after_items_upserted(remind_rows)
     return added
 
 
@@ -499,6 +590,44 @@ def source_states() -> list[dict]:
         conn.close()
 
 
+def upsert_bot_contact(openid: str, nickname: str = "") -> dict:
+    """记下和机器人私聊过的人（openid + 昵称），App 里下拉选推送对象。"""
+    openid = (openid or "").strip()
+    if not openid:
+        return {}
+    conn = connect()
+    try:
+        conn.execute(
+            """INSERT INTO bot_contacts(openid, nickname, last_seen)
+               VALUES (?,?,?)
+               ON CONFLICT(openid) DO UPDATE SET
+                 nickname=excluded.nickname,
+                 last_seen=excluded.last_seen""",
+            (openid, (nickname or "").strip(), datetime.now().isoformat(timespec="seconds")),
+        )
+        conn.commit()
+        row = conn.execute(
+            "SELECT * FROM bot_contacts WHERE openid=?", (openid,)
+        ).fetchone()
+        return dict(row) if row else {}
+    finally:
+        conn.close()
+
+
+def list_bot_contacts(limit: int = 50) -> list[dict]:
+    """最近和机器人私聊过的联系人，最近说话的在前面。"""
+    conn = connect()
+    try:
+        rows = conn.execute(
+            """SELECT openid, nickname, last_seen FROM bot_contacts
+               ORDER BY COALESCE(last_seen, '') DESC, openid DESC LIMIT ?""",
+            (max(1, min(int(limit), 200)),),
+        ).fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        conn.close()
+
+
 def get_setting(key: str, default: str = "") -> str:
     conn = connect()
     try:
@@ -542,9 +671,11 @@ def create_event(data: dict) -> dict:
             ),
         )
         conn.commit()
-        return get_event(cur.lastrowid)
+        event = get_event(cur.lastrowid)
     finally:
         conn.close()
+    _after_event_created(event)
+    return event
 
 
 def get_event(event_id: int) -> dict:
@@ -579,12 +710,15 @@ def update_event(event_id: int, data: dict) -> dict:
         sets = ", ".join(f"{k}=?" for k in fields)
         conn.execute(f"UPDATE events SET {sets} WHERE id=?", (*fields.values(), event_id))
         conn.commit()
-        return get_event(event_id)
+        event = get_event(event_id)
     finally:
         conn.close()
+    _after_event_updated(event, fields)
+    return event
 
 
 def delete_event(event_id: int) -> bool:
+    _after_event_deleted(event_id)
     conn = connect()
     try:
         cur = conn.execute("DELETE FROM events WHERE id=?", (event_id,))
@@ -604,31 +738,41 @@ CALENDAR_RULES: tuple[tuple[str, str], ...] = (
 )
 
 
-def is_scheduled(row: dict) -> bool:
-    """这条信息该不该出现在日历 / 右栏待办里。
-
-    日历和右栏共用这一个判断，避免两边规则跑偏。
-    """
-    if (row.get("source"), row.get("category")) not in CALENDAR_RULES:
-        return False
-
+def _row_extra(row: dict) -> dict:
+    """row 里的 extra 可能是 JSON 串也可能是 dict。"""
     extra = row.get("extra")
     if isinstance(extra, str):
         try:
             extra = json.loads(extra)
         except json.JSONDecodeError:
             extra = {}
-    if (extra or {}).get("submitted"):
-        return False                        # 已提交的，不再出现
+    return extra if isinstance(extra, dict) else {}
+
+
+def is_scheduled(row: dict) -> bool:
+    """这条信息该不该出现在日历 / 右栏待办里。
+
+    日历和右栏共用这一个判断，避免两边规则跑偏。
+    已提交的仍然留在日历上（由调用方标 done=true 划掉）；
+    过期的保留到「过期后 1 天」，超过 1 天才从日历移除。
+    """
+    if (row.get("source"), row.get("category")) not in CALENDAR_RULES:
+        return False
 
     deadline = row.get("deadline") or ""
-    if deadline and deadline[:10] < date.today().isoformat():
-        return False                        # 过期的，也不再出现
+    if deadline:
+        cutoff = (date.today() - timedelta(days=1)).isoformat()
+        if deadline[:10] < cutoff:
+            return False                    # 过期超过 1 天才不再出现
     return True
 
 
 def items_with_deadline(start: str, end: str) -> list[dict]:
-    """把「必须进日历」的条目铺到日历上（只读，不写回 items）。"""
+    """把「必须进日历」的条目铺到日历上（只读，不写回 items）。
+
+    每条带 done：已提交（extra.submitted）算办完，前端据此划线，但条目本身
+    不消失；过期的只是还没办完，保留 1 天后由 is_scheduled 移出。
+    """
     conn = connect()
     try:
         rows = conn.execute(
@@ -642,9 +786,43 @@ def items_with_deadline(start: str, end: str) -> list[dict]:
         out = []
         for r in rows:
             item = dict(r)
-            if is_scheduled(item):
-                item.pop("extra", None)
-                out.append(item)
+            extra = _row_extra(item)
+            if not is_scheduled(item):
+                continue
+            item.pop("extra", None)
+            item["done"] = bool(extra.get("submitted"))
+            out.append(item)
         return out
+    finally:
+        conn.close()
+
+
+def mark_expired_read(grace_days: int = 1) -> int:
+    """过期/发布超过宽限天数的条目自动标已读（邮件不在 items 表，天然不受影响）。
+
+    Args:
+        grace_days: 过期/发布后宽限几天才标已读，默认 1 天。
+
+    Returns:
+        标了多少条。
+    """
+    conn = connect()
+    offset = f"-{int(grace_days)} days"
+    try:
+        cur = conn.execute(
+            """UPDATE items SET read_at = datetime('now','localtime')
+               WHERE read_at IS NULL
+                 AND (
+                   (deadline IS NOT NULL AND deadline <> ''
+                    AND datetime(deadline) < datetime('now','localtime',?))
+                   OR
+                   ((deadline IS NULL OR deadline = '')
+                    AND published IS NOT NULL
+                    AND datetime(published) < datetime('now','localtime',?))
+                 )""",
+            (offset, offset),
+        )
+        conn.commit()
+        return cur.rowcount
     finally:
         conn.close()
