@@ -3,326 +3,109 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>信鸽 SJTU // 校园信息终端</title>
-  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' fill='%23080b0d'/%3E%3Crect x='5.5' y='5.5' width='21' height='21' fill='none' stroke='%23ffb000' stroke-width='2'/%3E%3Cpath d='M11 16h10M16 11v10' stroke='%23ffb000' stroke-width='2'/%3E%3C/svg%3E" />
+  <meta name="theme-color" content="#172430" />
+  <title>信鸽 SJTU</title>
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
+  <header class="masthead">
+    <div class="site-brand">
+      <svg viewBox="0 0 36 36" fill="none" aria-hidden="true"><rect width="36" height="36" rx="3" fill="currentColor"/><path d="M7 22 25 10l-4 15-5-5-5 6v-6l9-6" stroke="#172430" stroke-width="1.8" stroke-linejoin="round"/></svg>
+      <strong>信鸽 <small>SJTU</small></strong>
+    </div>
+    <div class="mast-label">校园信息工作台</div>
+    <div class="mast-actions"><button id="btn-fetch">↻ <span>同步信息</span></button><button id="btn-agent" class="primary">问助手 <span aria-hidden="true">↗</span></button></div>
+  </header>
 
-  <!-- ===================== 登录页：身份验证终端 ===================== -->
-  <section id="login-page" class="login-page" hidden>
-    <i class="vp-corner tl"></i><i class="vp-corner tr"></i>
-    <i class="vp-corner bl"></i><i class="vp-corner br"></i>
-    <div class="login-shell">
-      <i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
-
-      <header class="login-bar">
-        <span class="led"></span>
-        <span class="login-bar-id">SJTU // XINGE TERMINAL</span>
-        <span class="login-bar-sep">///</span>
-        <span class="login-bar-sub">IDENTITY VERIFICATION</span>
-        <span class="login-bar-clock">UTC <b data-utc>--:--:--</b></span>
-      </header>
-
-      <div class="login-inner">
-        <div class="login-intro">
-          <div class="login-orbit-wrap">
-            <svg class="login-orbit" viewBox="0 0 240 160" aria-hidden="true">
-              <g fill="none" stroke="currentColor" stroke-width="1">
-                <ellipse cx="120" cy="80" rx="104" ry="42" transform="rotate(-14 120 80)" opacity=".55"/>
-                <ellipse cx="120" cy="80" rx="78" ry="26" transform="rotate(-14 120 80)" opacity=".3"/>
-                <circle cx="120" cy="80" r="46" opacity=".7"/>
-                <circle cx="120" cy="80" r="54" stroke-dasharray="2 7" opacity=".45"/>
-                <circle cx="120" cy="80" r="2.5" fill="currentColor" stroke="none"/>
-                <path d="M120 20v12M120 128v12M60 80h12M168 80h12" opacity=".7"/>
-                <circle cx="206" cy="55" r="3.5" fill="currentColor" stroke="none"/>
-              </g>
-            </svg>
-            <div class="login-logo">信鸽 <span>SJTU</span></div>
-          </div>
-          <p class="login-sub">SHANGHAI JIAO TONG UNIVERSITY<br />CAMPUS TELEMETRY TERMINAL</p>
-
-          <div class="login-boot" aria-hidden="true">
-            <div class="boot-line"><span>SYS.CHECK</span><i class="boot-dots"></i><b class="ok">OK</b></div>
-            <div class="boot-line"><span>UPLINK</span><i class="boot-dots"></i><b>STANDBY</b></div>
-            <div class="boot-line"><span>IDENTITY</span><i class="boot-dots"></i><b class="warn">REQUIRED</b></div>
-            <div class="boot-line"><span>DATA.CACHE</span><i class="boot-dots"></i><b class="ok">LOCAL</b></div>
-          </div>
-
-          <div class="login-sources" aria-hidden="true">
-            <div class="ls-head"><span>DATA SOURCES // 数据源</span><span>04</span></div>
-            <div class="ls-row"><span class="ls-k">CANVAS</span><i class="ls-line"></i><b>SYNC</b></div>
-            <div class="ls-row"><span class="ls-k">COLLEGE</span><i class="ls-line"></i><b>SYNC</b></div>
-            <div class="ls-row"><span class="ls-k">RSS</span><i class="ls-line"></i><b class="dim">IDLE</b></div>
-            <div class="ls-row"><span class="ls-k">JWC</span><i class="ls-line"></i><b class="dim">IDLE</b></div>
-          </div>
+  <div class="workspace">
+    <aside class="sidebar" aria-label="信息源和设置">
+      <div class="section-label">信息源 <span>01</span></div>
+      <nav class="boards" aria-label="信息源">
+        <button id="nav-mail" class="board"><span>邮箱</span><span id="mail-badge" class="badge" hidden></span></button>
+        <div id="boards" class="boards-inner"></div>
+      </nav>
+      <div class="sidebar-foot">
+        <div class="section-label">设置 <span>02</span></div>
+        <div class="utility-grid">
+          <button id="btn-feeds">订阅</button><button id="btn-bot">机器人</button>
+          <button id="btn-api">接口</button><button id="btn-diag">诊断</button>
+          <button id="btn-clean">清理</button><button id="btn-logout">退出登录</button>
         </div>
-
-        <div class="login-card">
-          <div class="login-card-head"><span>AUTH // jAccount</span><span>SEC.00</span></div>
-
-          <div id="login-body">
-            <p class="login-hint">
-              用 jAccount 登录一次，作业、活动、学院公告、水源社区、课表<br />
-              就都进来了。登录态只存在这台电脑上。
-            </p>
-            <button id="login-go" class="login-btn">用 jAccount 登录</button>
-            <p class="login-warn">AUTH REQUIRED · 未验证身份前仅显示登录终端</p>
-            <div class="login-steps" aria-hidden="true">
-              <span class="lstep"><b>01</b>SCAN</span>
-              <i class="lstep-line"></i>
-              <span class="lstep"><b>02</b>VERIFY</span>
-              <i class="lstep-line"></i>
-              <span class="lstep"><b>03</b>SYNC</span>
-            </div>
-          </div>
-
-          <div id="login-qr-box" hidden>
-            <p class="login-hint">用「交我办」或微信扫一扫</p>
-            <div class="qr-frame"><img id="login-qr-img" alt="登录二维码" /></div>
-            <p id="login-qr-tip" class="login-tip"></p>
-            <button id="login-cancel" class="login-link">取消</button>
-          </div>
-
-          <p class="login-foot">登录后可以随时在左下角「退出登录」</p>
-        </div>
+        <button id="btn-login" hidden>扫码登录</button>
+        <div id="status" class="status" role="status"></div>
       </div>
+    </aside>
 
-      <footer class="login-footbar">
-        <span>LAT 31.0250 N</span>
-        <span>LON 121.4330 E</span>
-        <span>GRID 51R</span>
-        <span>BUILD 2.6.0</span>
-        <span class="login-footbar-end">SYS // STANDBY</span>
-      </footer>
+    <main class="main">
+      <section id="feed-view" class="view" aria-labelledby="board-title">
+        <header class="topbar">
+          <div><div class="eyebrow">信息流 <span> / </span> FEED</div><h1 id="board-title">全部</h1></div>
+          <span id="count" class="count"></span>
+        </header>
+        <div class="feed-toolbar">
+          <label class="switch"><input type="checkbox" id="only-unread" /><span>只看未读</span></label>
+          <div class="topbar-right"><button id="btn-read-all" class="mini">全部已读</button><button id="btn-select" class="mini">多选</button><button id="btn-clear-read" class="mini">清理已读</button></div>
+        </div>
+        <div id="setup-tip" class="setup-tip" hidden></div>
+        <div id="college-bar" class="college-bar" hidden></div>
+        <section id="items" class="items" aria-label="信息列表"></section>
+      </section>
+      <section id="mail-view" class="view" hidden>
+        <header class="topbar"><div><div class="eyebrow">INBOX</div><h1>邮箱</h1></div><div class="topbar-right"><span id="mail-count" class="count"></span><button id="mail-refresh" class="mini">刷新</button></div></header>
+        <section id="mail-list" class="items" aria-label="邮件列表"></section>
+      </section>
+      <section id="calendar-view" class="view" hidden>
+        <header class="topbar"><div><div class="eyebrow">FLIGHT PLAN</div><h1>日历</h1></div><button id="cal-close">返回信息流</button></header>
+        <div class="feed-toolbar calendar-toolbar">
+          <div class="cal-nav"><button id="cal-prev" aria-label="上个月">‹</button><span id="cal-label"></span><button id="cal-next" aria-label="下个月">›</button><button id="cal-today">今天</button></div>
+          <div class="cal-split"><button id="cal-show-class" class="cal-toggle on">课表</button><button id="cal-show-plan" class="cal-toggle on">日程</button></div>
+        </div>
+        <div class="big-cal"><div class="big-weekhead"><span>周一</span><span>周二</span><span>周三</span><span>周四</span><span>周五</span><span>周六</span><span>周日</span></div><div id="big-grid" class="big-grid"></div></div>
+      </section>
+    </main>
+
+    <aside id="rail" class="rail" aria-label="日程和提醒">
+      <div class="section-label">日程与提醒 <span>03</span></div>
+      <div class="rail-head"><span id="rail-label"></span><button id="rail-prev" aria-label="上个月">‹</button><button id="rail-next" aria-label="下个月">›</button><button id="rail-expand" aria-label="展开整页日历" title="展开整页日历">↗</button></div>
+      <div class="rail-weekhead"><span>一</span><span>二</span><span>三</span><span>四</span><span>五</span><span>六</span><span>日</span></div>
+      <div id="rail-grid" class="rail-grid"></div>
+      <div class="rail-tabs" aria-label="提醒分类"><button id="tab-hw" class="active">Canvas</button><button id="tab-zhitu">知途</button><button id="tab-mail">邮件</button><button id="tab-day">当天</button></div>
+      <div id="rail-hw" class="rail-panel"></div><div id="rail-zhitu" class="rail-panel" hidden></div><div id="rail-mail" class="rail-panel" hidden></div>
+      <div id="rail-day" class="rail-panel" hidden><div class="day-head"><span id="day-label"></span><button id="day-add" class="mini primary">＋ 新建</button></div><div id="day-list" class="day-list"></div></div>
+      <div class="chat"><label for="chat-input">快速安排</label><div id="chat-log" class="chat-log" aria-live="polite"></div><div class="chat-row"><input id="chat-input" placeholder="明天下午3点开会" /><button id="chat-send" class="primary">安排</button></div></div>
+    </aside>
+  </div>
+
+  <section id="login-page" class="login-page" aria-labelledby="login-title" hidden>
+    <div class="flight-sheet">
+      <div class="flight-caption"><span>信鸽 &nbsp; / &nbsp; SJTU</span><span>校园信息工作台</span></div>
+      <svg class="flight-art" viewBox="0 0 540 430" fill="none" aria-hidden="true">
+        <defs><pattern id="flight-grid" width="24" height="24" patternUnits="userSpaceOnUse"><path d="M24 0H0V24" stroke="#718693" stroke-opacity=".27"/></pattern></defs>
+        <path d="M24 24h492v382H24z" fill="url(#flight-grid)" stroke="#617482"/>
+        <path d="M24 215h492M270 24v382" stroke="#80919a" stroke-dasharray="3 6" opacity=".55"/>
+        <path d="M24 46V24h22m448 0h22v22m0 338v22h-22m-448 0H24v-22" stroke="#e7e0d1" stroke-width="2"/>
+        <path d="M62 359C147 342 196 311 259 233S366 95 492 74" stroke="#f28b66" stroke-width="2" stroke-dasharray="5 8"/>
+        <path d="M169 259 394 101l-77 199-58-67-44 46 8-65 116-80" fill="#253847" stroke="#f5eddb" stroke-width="3" stroke-linejoin="round"/>
+        <path d="m259 233 80-99M317 300l-74-17" stroke="#a1b3b8" stroke-width="1.2" stroke-dasharray="4 4"/>
+        <circle cx="62" cy="359" r="7" fill="#f28b66"/><circle cx="492" cy="74" r="7" fill="#172430" stroke="#f28b66" stroke-width="2"/>
+        <g stroke="#e7e0d1" opacity=".6"><path d="M48 61h26m-13-13v26m391 288h26m-13-13v26"/></g>
+      </svg>
+      <div class="flight-caption flight-legend"><span>FIG. 01 &nbsp; / &nbsp; 信鸽通信标记</span><span>29—01</span></div>
+    </div>
+    <div class="access-panel">
+      <div class="access-card">
+        <div class="eyebrow">ACCOUNT ACCESS &nbsp; / &nbsp; 01</div>
+        <h1 id="login-title">登录信鸽</h1>
+        <div id="login-body"><p>用交大 jAccount 登录，在一个地方查看课程、校园通知和日程。</p><button id="login-go" class="primary login-btn">用 jAccount 登录 <span aria-hidden="true">↗</span></button></div>
+        <div id="login-qr-box" hidden><p>用「交我办」或微信扫一扫。</p><img id="login-qr-img" alt="jAccount 登录二维码" /><p id="login-qr-tip" role="status"></p><button id="login-cancel">取消</button></div>
+        <div class="access-foot">登录后可在「设置」中退出账号。</div>
+      </div>
     </div>
   </section>
-
-  <!-- ===================== 左侧：任务控制台模块选择器 ===================== -->
-  <aside class="sidebar">
-    <i class="corner tl"></i><i class="corner br"></i>
-
-    <div class="side-top">
-      <span class="side-kicker">SJTU · MISSION CONTROL</span>
-      <span class="side-build">B2.6</span>
-    </div>
-
-    <div class="brand"><span class="dot"></span><span>信鸽 <b>SJTU</b></span></div>
-    <div class="brand-sub"><span>XINGE</span><span>CAMPUS UPLINK</span></div>
-
-    <nav class="boards">
-      <div class="side-label"><span>MAIL // 邮箱</span><span>01</span></div>
-      <button id="nav-mail" class="board">
-        <span>邮箱</span>
-        <span id="mail-badge" class="badge" hidden></span>
-      </button>
-      <div class="nav-sep"></div>
-      <div class="side-label"><span>MODULES // 板块</span><span>///</span></div>
-      <div id="boards" class="boards-inner"></div>
-    </nav>
-
-    <div class="side-status" aria-hidden="true">
-      <div class="ss-head"><span>SYSTEM STATUS</span><span>SYS.04</span></div>
-      <div class="ss-row">
-        <span class="ss-k">UPLINK</span>
-        <span class="ss-meter"><i></i><i></i><i></i><i></i><i class="off"></i></span>
-        <span class="ss-v ok">LOCK</span>
-      </div>
-      <div class="ss-row">
-        <span class="ss-k">PIPE</span>
-        <span class="ss-meter"><i></i><i></i><i></i><i class="off"></i><i class="off"></i></span>
-        <span class="ss-v">IDLE</span>
-      </div>
-      <div class="ss-row">
-        <span class="ss-k">CACHE</span>
-        <span class="ss-meter"><i></i><i></i><i></i><i></i><i></i></span>
-        <span class="ss-v cy">LOCAL</span>
-      </div>
-    </div>
-
-    <div class="sidebar-foot">
-      <div class="side-label"><span>OPS // 操作</span><span>SEC.02</span></div>
-      <button id="btn-agent" class="primary">问助手</button>
-      <button id="btn-fetch">抓取全部</button>
-      <div class="btn-row">
-        <button id="btn-api">接口</button>
-        <button id="btn-bot">机器人</button>
-        <button id="btn-feeds">订阅</button>
-        <button id="btn-diag">诊断</button>
-      </div>
-      <div class="btn-row">
-        <button id="btn-clean">清理</button>
-        <button id="btn-logout">退出登录</button>
-      </div>
-      <button id="btn-login" hidden>扫码登录</button>
-      <div id="status" class="status"></div>
-    </div>
-  </aside>
-
-  <!-- ===================== 中间主区 ===================== -->
-  <main class="main">
-
-    <!-- 信息流 -->
-    <section id="feed-view" class="view">
-      <header class="topbar">
-        <div class="tb-left">
-          <div class="tb-kicker"><span class="led"></span><span>SEC.01</span><span class="tb-slash">//</span><span>TELEMETRY FEED</span></div>
-          <div class="tb-title">
-            <h1 id="board-title">全部</h1>
-            <span class="tb-rule"></span>
-            <span class="tb-live"><i></i>LIVE</span>
-          </div>
-        </div>
-        <div class="topbar-right">
-          <label class="switch">
-            <input type="checkbox" id="only-unread" />
-            <span>只看未读</span>
-          </label>
-          <span class="tb-div"></span>
-          <button id="btn-read-all" class="mini">全部已读</button>
-          <button id="btn-select" class="mini">多选</button>
-          <button id="btn-clear-read" class="mini">清理已读</button>
-          <span id="count" class="count"></span>
-        </div>
-      </header>
-
-      <div class="ticker">
-        <span class="tk"><b>STREAM</b>LIVE</span>
-        <span class="tk"><b>SRC</b>CANVAS · RSS · SJTU</span>
-        <span class="tk tk-grow">/// TELEMETRY STREAM · AUTO-SYNC ACTIVE · NO ANOMALY</span>
-        <span class="tk"><b>UTC</b><span data-utc>--:--:--</span></span>
-      </div>
-
-      <div id="setup-tip" class="setup-tip" hidden></div>
-      <div id="college-bar" class="college-bar" hidden></div>
-      <section id="items" class="items"></section>
-    </section>
-
-    <!-- 邮箱 -->
-    <section id="mail-view" class="view" hidden>
-      <header class="topbar">
-        <div class="tb-left">
-          <div class="tb-kicker"><span class="led cyan"></span><span>SEC.01</span><span class="tb-slash">//</span><span>MAIL SPOOL</span></div>
-          <div class="tb-title">
-            <h1>邮箱</h1>
-            <span class="tb-rule"></span>
-            <span class="tb-live"><i></i>IMAP</span>
-          </div>
-        </div>
-        <div class="topbar-right">
-          <span id="mail-count" class="count"></span>
-          <span class="tb-div"></span>
-          <button id="mail-refresh" class="mini">刷新</button>
-        </div>
-      </header>
-      <div class="ticker">
-        <span class="tk"><b>SPOOL</b>INBOX</span>
-        <span class="tk tk-grow">/// MAIL SPOOL · LAST 60 MESSAGES · LOCAL CACHE</span>
-        <span class="tk"><b>UTC</b><span data-utc>--:--:--</span></span>
-      </div>
-      <section id="mail-list" class="items"></section>
-    </section>
-
-    <!-- 整页日历 -->
-    <section id="calendar-view" class="view" hidden>
-      <header class="topbar topbar-cal">
-        <div class="tb-left">
-          <div class="tb-kicker"><span class="led cyan"></span><span>SEC.01</span><span class="tb-slash">//</span><span>SCHEDULE MATRIX</span></div>
-          <div class="tb-title">
-            <h1>日历</h1>
-            <span class="tb-rule"></span>
-            <span class="tb-live"><i></i>LOCAL</span>
-          </div>
-        </div>
-        <div class="cal-split">
-          <button id="cal-show-class" class="cal-toggle on">课表</button>
-          <button id="cal-show-plan" class="cal-toggle on">日程</button>
-        </div>
-        <div class="topbar-right">
-          <div class="cal-nav">
-            <button id="cal-prev" aria-label="上个月">‹</button>
-            <span id="cal-label"></span>
-            <button id="cal-next" aria-label="下个月">›</button>
-            <button id="cal-today">今天</button>
-          </div>
-          <span class="tb-div"></span>
-          <button id="cal-close">返回信息流</button>
-        </div>
-      </header>
-
-      <div class="ticker">
-        <span class="tk"><b>GRID</b>7 × 6</span>
-        <span class="tk"><b>WEEK START</b>MON</span>
-        <span class="tk tk-grow">/// SCHEDULE MATRIX · 课表与日程分层显示</span>
-        <span class="tk"><b>UTC</b><span data-utc>--:--:--</span></span>
-      </div>
-
-      <div class="big-cal">
-        <div class="big-weekhead">
-          <span><b>MON</b>一</span><span><b>TUE</b>二</span><span><b>WED</b>三</span>
-          <span><b>THU</b>四</span><span><b>FRI</b>五</span><span><b>SAT</b>六</span><span><b>SUN</b>日</span>
-        </div>
-        <div id="big-grid" class="big-grid"></div>
-      </div>
-    </section>
-  </main>
-
-  <!-- ===================== 右侧：辅助仪表 ===================== -->
-  <aside id="rail" class="rail">
-    <i class="corner tr"></i><i class="corner bl"></i>
-
-    <div class="rail-topline">
-      <span class="led cyan"></span><span>AUX CONSOLE</span><span class="rail-topline-r">SEC.03</span>
-    </div>
-
-    <div class="rail-head">
-      <button id="rail-prev" aria-label="上个月">‹</button>
-      <span id="rail-label"></span>
-      <button id="rail-next" aria-label="下个月">›</button>
-      <button id="rail-expand" title="展开整页日历">⤢</button>
-    </div>
-
-    <div class="rail-weekhead">
-      <span>一</span><span>二</span><span>三</span><span>四</span>
-      <span>五</span><span>六</span><span>日</span>
-    </div>
-    <div id="rail-grid" class="rail-grid"></div>
-
-    <div class="rail-tabs">
-      <button id="tab-hw" class="active">Canvas</button>
-      <button id="tab-zhitu">知途</button>
-      <button id="tab-mail">邮件</button>
-      <button id="tab-day">当天</button>
-    </div>
-
-    <div class="rail-panel-head"><span>PANEL // 面板</span><span>LIVE</span></div>
-
-    <div id="rail-hw" class="rail-panel"></div>
-    <div id="rail-zhitu" class="rail-panel" hidden></div>
-    <div id="rail-mail" class="rail-panel" hidden></div>
-
-    <div id="rail-day" class="rail-panel" hidden>
-      <div class="day-head">
-        <span id="day-label"></span>
-        <button id="day-add" class="mini primary">+ 新建</button>
-      </div>
-      <div id="day-list" class="day-list"></div>
-    </div>
-
-    <div class="chat">
-      <div class="chat-label"><span>CMD // SCHEDULE</span><span>NL</span></div>
-      <div id="chat-log" class="chat-log"></div>
-      <div class="chat-row">
-        <input id="chat-input" placeholder="明天下午3点 图书馆开会" />
-        <button id="chat-send" class="primary">安排</button>
-      </div>
-    </div>
-  </aside>
 
   <!-- 旧扫码浮层（仍保留） -->
   <div id="login-overlay" class="login-overlay" hidden>
     <div class="login-card">
-      <div class="login-card-head"><span>SCAN // jAccount</span><span>OVL</span></div>
       <h2>扫码登录</h2>
       <p class="hint">用「交我办」或微信扫一扫<br />登录后所有校内站点一起生效</p>
       <img id="login-qr" alt="登录二维码" />
@@ -334,7 +117,6 @@
   <!-- ===================== 弹窗 ===================== -->
   <dialog id="event-dlg">
     <form method="dialog" id="event-form">
-      <div class="dlg-kicker">EVENT BUILDER // 本地日程 · SQLITE</div>
       <h2 id="dlg-title">编辑事件</h2>
       <label class="field"><span>题目</span><input id="f-title" required placeholder="输入事件标题…" /></label>
       <label class="field"><span>日期</span><input id="f-date" type="date" required /></label>
@@ -354,7 +136,6 @@
   </dialog>
 
   <dialog id="api-dlg" class="agent-dlg">
-    <div class="dlg-kicker">INTERFACE REGISTRY // 工具开关</div>
     <h2>接口管理</h2>
     <p class="hint">决定问助手能调什么、机器人能调什么。关掉的对应该入口直接不可用。</p>
 
@@ -370,7 +151,6 @@
   </dialog>
 
   <dialog id="agent-dlg" class="agent-dlg">
-    <div class="dlg-kicker">ASSISTANT LINK // AGENT CONSOLE</div>
     <h2>问助手</h2>
     <p class="hint">它会自己调接口去查，不用你告诉它去哪儿找。</p>
     <div id="agent-log" class="agent-log"></div>
@@ -384,7 +164,6 @@
   </dialog>
 
   <dialog id="bot-dlg">
-    <div class="dlg-kicker">QQ LINK // ASTRBOT BRIDGE</div>
     <h2>QQ 机器人</h2>
     <p class="hint">
       只需要在这里填 AppID 和 Secret，模型、平台、插件都会自动配好。
@@ -426,7 +205,6 @@
   </dialog>
 
   <dialog id="feeds-dlg">
-    <div class="dlg-kicker">SOURCE REGISTRY // 订阅与登录</div>
     <h2>RSS 订阅</h2>
     <p class="hint">任何输出 RSS / Atom 的地址都能加进来。</p>
     <div id="feed-list" class="feed-list"></div>
@@ -486,7 +264,6 @@
   </dialog>
 
   <dialog id="act-dlg">
-    <div class="dlg-kicker">ACTIVITY RECORD // 第二课堂</div>
     <h2 id="act-title"></h2>
     <div id="act-meta" class="act-meta"></div>
     <p id="act-intro" class="act-intro"></p>
@@ -500,25 +277,11 @@
   </dialog>
 
   <dialog id="diag">
-    <div class="dlg-kicker">SELF TEST // 系统诊断</div>
     <h2>诊断</h2>
     <div id="diag-body"></div>
     <form method="dialog"><button>关闭</button></form>
   </dialog>
 
   <script src="app.js" type="module"></script>
-  <script>
-    /* 纯装饰：UTC 时钟读数（不参与任何业务逻辑） */
-    (function () {
-      function pad(n) { return String(n).padStart(2, "0"); }
-      function tick() {
-        var d = new Date();
-        var t = pad(d.getUTCHours()) + ":" + pad(d.getUTCMinutes()) + ":" + pad(d.getUTCSeconds());
-        var nodes = document.querySelectorAll("[data-utc]");
-        for (var i = 0; i < nodes.length; i++) nodes[i].textContent = t;
-      }
-      try { tick(); setInterval(tick, 1000); } catch (e) { /* 装饰失败不影响主流程 */ }
-    })();
-  </script>
 </body>
 </html>

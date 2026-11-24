@@ -2,7 +2,7 @@
 // 壳本身不写业务逻辑——所有功能都在 /api/v1 后面，
 // 这样将来换成 Tauri、或者让 Agent 直接调接口，都不用改这里。
 
-const { app, BrowserWindow, shell, dialog } = require("electron");
+const { app, BrowserWindow, Menu, shell, dialog } = require("electron");
 const { spawn } = require("node:child_process");
 const path = require("node:path");
 const fs = require("node:fs");
@@ -88,7 +88,11 @@ async function createWindow() {
     minWidth: 900,
     minHeight: 600,
     title: "信鸽 SJTU",
-    backgroundColor: "#f7f8fa",
+    backgroundColor: "#eae5d9",
+    // 自绘标题栏：标题栏和菜单栏都不要，顶栏直接贴着窗口边
+    autoHideMenuBar: true,
+    titleBarStyle: "hidden",
+    titleBarOverlay: { color: "#172430", symbolColor: "#f6edda", height: 40 },
     webPreferences: {
       preload: path.join(__dirname, "preload.js"),
       contextIsolation: true,
@@ -106,6 +110,8 @@ async function createWindow() {
 }
 
 app.whenReady().then(async () => {
+  // 去掉 File/Edit/View/Window/Help 那一条
+  Menu.setApplicationMenu(null);
   startBackend();
 
   const healthy = await waitForHealth();
