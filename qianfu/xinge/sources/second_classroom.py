@@ -50,7 +50,11 @@ class SecondClassroomSource:
         report = FetchReport(source=self.key)
         if not self.api_key:
             report.ok = False
-            report.error = "缺少 SJTU_API_KEY 环境变量"
+            report.error = (
+                "还没配第二课堂的 API Key。"
+                "去 agentsquare.sjtu.edu.cn 点「申请 Key」，"
+                "然后在「机器人」弹窗里填进去"
+            )
             return report
 
         try:

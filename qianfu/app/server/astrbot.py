@@ -46,11 +46,20 @@ def start() -> dict:
             return {"ok": False, "state": "not-installed"}
 
         py = astrbot_setup.python_for_astrbot()
+
+        # 别把输出丢掉——出问题时这是唯一能看到 QQ 连没连上的地方
+        log_path = astrbot_setup.ASTRBOT_DIR / "data" / "xinge-astrbot.log"
+        try:
+            log_path.parent.mkdir(parents=True, exist_ok=True)
+            log_file = open(log_path, "ab", buffering=0)
+        except OSError:
+            log_file = subprocess.DEVNULL
+
         _proc = subprocess.Popen(
             [str(py), "main.py"],
             cwd=astrbot_setup.ASTRBOT_DIR,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
+            stdout=log_file,
+            stderr=log_file,
         )
 
     for _ in range(90):

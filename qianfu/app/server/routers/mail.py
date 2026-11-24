@@ -22,7 +22,18 @@ def get_settings():
         "address": address,
         "has_password": bool(password),
         "configured": bool(address and password),
+        # 没配密码也能用：走 jAccount
+        "via_jaccount": True,
     }
+
+
+@router.get("/mail/test")
+def test_mail():
+    """测一下邮箱能不能读。没配密码就用 jAccount。"""
+    address, password = _creds()
+    if address and password:
+        return mailer.test(address, password)
+    return mailer.test_via_jaccount()
 
 
 @router.put("/mail/settings")
@@ -42,8 +53,16 @@ def save_settings(body: dict):
 @router.get("/mail/list")
 def list_mail(limit: int = 20):
     address, password = _creds()
+
+    # 没配邮箱密码就用 jAccount 直连（交大邮箱支持 SSO）
     if not (address and password):
-        raise HTTPException(status_code=400, detail="还没有配置邮箱")
+        try:
+            return mailer.fetch_via_jaccount(limit=max(1, min(limit, 100)))
+        except mailer.MailError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except Exception as exc:                  # noqa: BLE001
+            raise HTTPException(status_code=502, detail=f"读取邮件失败：{exc}") from exc
+
     try:
         return mailer.fetch_messages(address, password, limit=max(1, min(limit, 100)))
     except mailer.MailError as exc:

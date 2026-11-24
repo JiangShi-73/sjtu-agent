@@ -19,7 +19,22 @@ def status():
 
 @router.post("/jaccount/sso/{site}")
 async def sso(site: str):
-    """对某个站做一次 SSO，把会话存下来。"""
+    """对某个站做一次登录，把会话存下来。"""
+    # 校园活动要拿 JWT，走它自己的换票流程
+    if site == "activity":
+        from xinge.sources import activity_portal
+
+        def _login_activity():
+            from xinge.auth import SessionStore
+
+            token = activity_portal.get_token(SessionStore(), refresh=True)
+            return {"ok": bool(token), "site": "activity"}
+
+        result = await asyncio.to_thread(_login_activity)
+        if not result.get("ok"):
+            raise HTTPException(status_code=400, detail="换不到活动平台令牌，先确认 jAccount 已登录")
+        return result
+
     result = await asyncio.to_thread(jaccount.login, site)
     if not result.get("ok"):
         raise HTTPException(status_code=400, detail=result.get("error") or "登录失败")

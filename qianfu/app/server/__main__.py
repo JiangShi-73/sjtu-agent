@@ -4,7 +4,13 @@ from __future__ import annotations
 
 import argparse
 
-import uvicorn
+try:
+    import uvicorn
+except ModuleNotFoundError as exc:  # 只在便携版解压不完整时走到
+    raise SystemExit(
+        f"信鸽后端启动失败：{exc}。"
+        "便携版文件不完整（多半是 zip 没解压完），请重新完整解压后再启动。"
+    ) from None
 
 
 def main() -> None:

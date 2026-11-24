@@ -39,8 +39,19 @@ def venv_python() -> Path:
 
 
 def portable() -> bool:
-    """便携版：依赖装在 packages/ 里，用嵌入式 Python，没有 venv。"""
-    return (ROOT / "packages").exists() and os.environ.get("XINGE_PORTABLE") == "1"
+    """便携版：依赖装在 packages/ 里，用嵌入式 Python，没有 venv。
+
+    除了 XINGE_PORTABLE=1，也看目录结构：早期版本生成的 启动.bat 漏了这行
+    （用户手上的 zip 就是），但 packages/ 和内置 python/ 都在，一样是便携版，
+    不能再去建 venv（嵌入式 Python 没有 venv 模块，建了必炸）。
+    """
+    if not (ROOT / "packages").exists():
+        return False
+    if os.environ.get("XINGE_PORTABLE") == "1":
+        return True
+    return (os.name == "nt" and (ROOT / "python" / "python.exe").exists()) or (
+        os.name != "nt" and (ROOT / "python" / "bin" / "python3").exists()
+    )
 
 
 def python_for_astrbot() -> Path:
@@ -57,7 +68,11 @@ def python_for_astrbot() -> Path:
 def installed() -> bool:
     if not (ASTRBOT_DIR / "main.py").exists():
         return False
-    return portable() or venv_python().exists()
+    # 便携版 / 安装版：依赖内置在 packages/ 里，不缺解释器环境
+    if (ROOT / "packages").exists():
+        return True
+    # 开发版：看 venv 建没建
+    return venv_python().exists()
 
 
 def ensure_installed(log=print) -> None:

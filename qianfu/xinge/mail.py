@@ -119,7 +119,10 @@ def fetch_messages(address: str, password: str, limit: int = 20, folder: str = "
             pass
 
 
-def test(address: str, password: str) -> dict:
+def test(address: str = "", password: str = "") -> dict:
+    """优先试 jAccount；没有再退回 IMAP 密码。"""
+    if not (address and password):
+        return test_via_jaccount()
     try:
         conn = _connect(address, password)
     except MailError as exc:
@@ -133,3 +136,102 @@ def test(address: str, password: str) -> dict:
             conn.logout()
         except Exception:
             pass
+
+
+# ---------------- jAccount 直连（不用邮箱密码） ----------------
+#
+# 交大邮箱是 Zimbra，支持 jAccount 单点登录。
+# 带着 jAccount 会话请求 mail.sjtu.edu.cn，会直接换到 ZM_AUTH_TOKEN，
+# 然后就能用 Zimbra 的 REST 接口读收件箱，不需要 IMAP 密码。
+
+ZIMBRA = "https://mail.sjtu.edu.cn/zimbra"
+
+
+def _zimbra_session():
+    """用 jAccount 会话登录 Zimbra，返回 (httpx.Client, token)。"""
+    import httpx
+
+    from . import jaccount
+
+    jar = jaccount.cookies()
+    if not jar.get("JAAuthCookie"):
+        raise MailError("还没有 jAccount 登录态，先扫码登录一次")
+
+    client = httpx.Client(headers={"User-Agent": jaccount.UA}, timeout=40, follow_redirects=True)
+    for name, value in jar.items():
+        client.cookies.set(name, value, domain="jaccount.sjtu.edu.cn")
+
+    client.get("https://mail.sjtu.edu.cn/")
+
+    token = ""
+    for cookie in client.cookies.jar:
+        if cookie.name == "ZM_AUTH_TOKEN":
+            token = cookie.value
+    if not token:
+        client.close()
+        raise MailError("jAccount 换不到邮箱会话，可能要重新扫码登录")
+    return client, token
+
+
+def fetch_via_jaccount(limit: int = 20, unread_only: bool = False) -> dict:
+    """走 jAccount 读邮箱，不需要邮箱密码。
+
+    Args:
+        limit: 取几封。
+        unread_only: 只要未读。
+
+    Returns:
+        和 fetch_messages 一样的结构。
+    """
+    client, _ = _zimbra_session()
+    try:
+        query = "&query=is:unread" if unread_only else ""
+        resp = client.get(f"{ZIMBRA}/home/~/inbox?fmt=json&limit={max(1, min(limit, 100))}{query}")
+        if resp.status_code != 200:
+            raise MailError(f"邮箱接口返回 HTTP {resp.status_code}")
+
+        payload = resp.json()
+        raw = payload.get("m") or []
+
+        # 顺手拿总未读数
+        unread = len(raw) if unread_only else 0
+        if not unread_only:
+            try:
+                cnt = client.get(f"{ZIMBRA}/home/~/inbox?fmt=json&limit=1&query=is:unread").json()
+                unread = len(cnt.get("m") or [])
+            except Exception:                     # noqa: BLE001
+                unread = 0
+
+        messages = []
+        for item in raw:
+            sender = (item.get("e") or [{}])[0]
+            stamp = item.get("d")
+            when = ""
+            if isinstance(stamp, (int, float)):
+                from datetime import datetime as _dt
+
+                when = _dt.fromtimestamp(stamp / 1000).strftime("%Y-%m-%d %H:%M")
+            messages.append(
+                {
+                    "subject": (item.get("su") or "(无主题)").strip(),
+                    "from_name": (sender.get("p") or sender.get("d") or "").strip(),
+                    "from_addr": (sender.get("a") or "").strip(),
+                    "date": when,
+                    "seen": bool(item.get("f")) and "u" not in str(item.get("f") or ""),
+                }
+            )
+
+        return {"total": len(raw), "unread": unread, "messages": messages}
+    finally:
+        client.close()
+
+
+def test_via_jaccount() -> dict:
+    """试一下 jAccount 能不能读邮箱。"""
+    try:
+        data = fetch_via_jaccount(limit=3)
+    except MailError as exc:
+        return {"ok": False, "error": str(exc)}
+    except Exception as exc:                      # noqa: BLE001
+        return {"ok": False, "error": f"读取失败：{exc}"}
+    return {"ok": True, "detail": f'未读 {data.get("unread", 0)} 封'}

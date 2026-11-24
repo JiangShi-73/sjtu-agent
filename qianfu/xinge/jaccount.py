@@ -62,16 +62,18 @@ SITES: dict[str, dict] = {
     "canvas": {
         "name": "Canvas",
         "url": "https://oc.sjtu.edu.cn/",
-        "check": ["_normandy_session", "_legacy_normandy_session"],
-        "method": "token",
-        "note": "Canvas 用 API 令牌，在设置里配 token",
+        # Canvas 不用 cookie 会话，直接拿 jAccount 会话调它的 API 验
+        "check": [],
+        "probe": "https://oc.sjtu.edu.cn/api/v1/users/self",
+        "method": "sso",
+        "note": "和 jAccount 一起生效",
     },
     "activity": {
         "name": "校园活动",
         "url": "https://activity.sjtu.edu.cn/",
         "check": ["IMPSA-Token"],
-        "method": "token",
-        "note": "活动平台发 JWT，登录时自动换",
+        "method": "sso",
+        "note": "用 jAccount 自动换 JWT，不用手动填令牌",
     },
 }
 
@@ -121,7 +123,37 @@ def save_site(site: str, jar: dict) -> None:
 
 def _ok(site: str, jar: dict) -> bool:
     checks = SITES.get(site, {}).get("check") or []
-    return any(jar.get(name) for name in checks)
+    if checks and any(jar.get(name) for name in checks):
+        return True
+    probe = SITES.get(site, {}).get("probe")
+    if probe:
+        return _probe(probe)
+    return False
+
+
+def _probe(url: str) -> bool:
+    """用完整会话（含各站自己种的 cookie）请求一次，200 就算登录成功。
+
+    Canvas 这类站靠的是 oc.sjtu.edu.cn 自己的 cookie，
+    jAccount 那几个 cookie 单独拿过去调不通。
+    """
+    if not cookies().get("JAAuthCookie"):
+        return False
+    try:
+        from .auth import SessionStore
+
+        resp = SessionStore().client().get(url, timeout=20)
+        return resp.status_code == 200
+    except Exception:                             # noqa: BLE001
+        try:
+            with httpx.Client(
+                headers={"User-Agent": UA}, timeout=15, follow_redirects=True
+            ) as client:
+                for name, value in cookies().items():
+                    client.cookies.set(name, value, domain="jaccount.sjtu.edu.cn")
+                return client.get(url).status_code == 200
+        except Exception:                         # noqa: BLE001
+            return False
 
 
 def login(site: str) -> dict:
@@ -158,6 +190,13 @@ def login(site: str) -> dict:
             if c.domain and "jaccount" not in c.domain
         }
 
+    # 有 probe 的站（比如 Canvas）用 API 判断，不看 cookie
+    if SITES[site].get("probe"):
+        save_site(site, site_cookies)
+        if _probe(SITES[site]["probe"]):
+            return {"ok": True, "site": site, "cookies": len(site_cookies)}
+        return {"ok": False, "error": "jAccount 会话调不通这个站，可能要先重新扫码登录"}
+
     if not _ok(site, site_cookies):
         return {
             "ok": False,
@@ -181,6 +220,20 @@ def client(site: str) -> httpx.Client:
     )
 
 
+def _site_logged_in(site: str) -> bool:
+    """各站登录状态。个别站有自己的一套存放方式。"""
+    # 校园活动把 JWT 存在 impsa.json 里，不在 activity.json
+    if site == "activity":
+        try:
+            from .sources.activity_portal import get_token
+            from .auth import SessionStore
+
+            return bool(get_token(SessionStore(), refresh=False))
+        except Exception:                         # noqa: BLE001
+            return False
+    return _ok(site, load_site(site))
+
+
 def status() -> dict:
     """jAccount 会话状态 + 各站登录情况。"""
     jar = cookies()
@@ -192,7 +245,7 @@ def status() -> dict:
                 "name": meta["name"],
                 "method": meta.get("method", "sso"),
                 "note": meta.get("note", ""),
-                "logged_in": _ok(key, load_site(key)),
+                "logged_in": _site_logged_in(key),
             }
             for key, meta in SITES.items()
         ],

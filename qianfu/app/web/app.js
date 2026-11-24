@@ -1016,15 +1016,7 @@ async function renderJaccount() {
     const btn = document.createElement("button");
     btn.className = "mini";
 
-    if (site.method === "token") {
-      btn.textContent = "用令牌";
-      btn.disabled = true;
-      btn.title = site.note || "";
-      row.append(name, btn);
-      box.appendChild(row);
-      continue;
-    }
-
+    // 所有站都靠 jAccount，不用手动贴令牌
     btn.textContent = site.logged_in ? "重新登录" : "登录";
     btn.disabled = !s.session;
     btn.onclick = async () => {
@@ -1549,15 +1541,27 @@ $("#mail-save").onclick = async () => {
   const address = $("#mail-address").value.trim();
   const password = $("#mail-password").value;
   const box = $("#mail-status");
-  box.textContent = "保存中…";
-  const r = await api("/mail/settings", {
-    method: "PUT",
-    body: JSON.stringify({ address, password }),
-  });
-  box.textContent = r.tested
-    ? (r.ok ? "✓ 连接成功" : "✗ " + (r.error || "连接失败"))
-    : "已保存";
-  $("#mail-password").value = "";
+
+  box.textContent = "测试中…";
+  try {
+    // 没填密码就直接用 jAccount 试读一次
+    if (!address && !password) {
+      const t = await api("/mail/test");
+      box.textContent = t.ok ? "✓ " + (t.detail || "jAccount 直连可用") : "✗ " + (t.error || "读不了");
+      return;
+    }
+
+    const r = await api("/mail/settings", {
+      method: "PUT",
+      body: JSON.stringify({ address, password }),
+    });
+    box.textContent = r.tested
+      ? (r.ok ? "✓ 连接成功" : "✗ " + (r.error || "连接失败"))
+      : "已保存";
+    $("#mail-password").value = "";
+  } catch (e) {
+    box.textContent = "✗ " + e;
+  }
 };
 $("#tab-day").onclick = () => switchRail("day");
 $("#rail-expand").onclick = () => switchView("calendar");
@@ -1608,3 +1612,34 @@ $("#cal-today").onclick = () => { state.month = new Date(); state.selected = tod
 
 // 启动：先看登没登录，没登录就停在登录页
 boot();
+
+// —— 界面增强（仅追加，不改动任何既有逻辑）——
+// 首屏就把右侧栏的小日历和 Canvas 作业面板拉起来，否则要等第一次操作才会渲染。
+loadCalendar().catch(() => {});
+loadHomework().catch(() => {});
+
+// —— 界面增强（仅追加）：补上「全部已读」按钮的绑定 ——
+// HEAD 里 #btn-read-all 没有任何事件（历史缺陷，点了没反应），后端本来就有 /items/read-all。
+$("#btn-read-all").onclick = async () => {
+  const board = state.board && state.board !== "__archive" ? state.board : "";
+  try {
+    const r = await api("/items/read-all" + (board ? "?board=" + encodeURIComponent(board) : ""), { method: "POST" });
+    $("#status").textContent = "已把 " + (r.marked ?? r.count ?? 0) + " 条标为已读";
+    loadBoards();
+    loadItems();
+    loadCalendar();
+  } catch (e) {
+    $("#status").textContent = "全部已读失败：" + e.message;
+  }
+};
+
+// —— 界面增强（仅追加）：「存档区」没有对应的 board 记录，loadBoards 会把标题落成「全部」，这里纠正 ——
+(function () {
+  const title = $("#board-title");
+  if (!title) return;
+  new MutationObserver(() => {
+    if (state.board === "__archive" && title.textContent.trim() === "全部") {
+      title.textContent = "存档区";
+    }
+  }).observe(title, { childList: true, characterData: true, subtree: true });
+})();

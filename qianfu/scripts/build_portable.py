@@ -145,7 +145,15 @@ def write_launcher(dest: Path) -> None:
             "pause",
         ]
     )
-    (dest / "启动.bat").write_text(bat, encoding="utf-8")
+    launcher = dest / "启动.bat"
+    launcher.write_text(bat, encoding="utf-8")
+
+    # 回归保护：便携版必须告诉 astrbot_setup 直接用 packages/ 里的依赖，
+    # 不能去建 venv（嵌入式 Python 没有 venv 模块，建了必炸）。
+    # 曾经漏过这一行：发出去的 zip 里 启动.bat 没有它，用户启动就报
+    # "No module named venv"。
+    if "set XINGE_PORTABLE=1" not in launcher.read_text(encoding="utf-8"):
+        raise SystemExit("启动.bat 少了 set XINGE_PORTABLE=1，打包中止")
 
 
 def main() -> None:
