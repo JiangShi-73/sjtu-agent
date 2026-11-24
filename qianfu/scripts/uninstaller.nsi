@@ -128,7 +128,6 @@ Section "清理"
 
   DetailPrint "清理残留..."
   RMDir /r "$LOCALAPPDATA\xinge-desktop-updater"
-  Delete "$DESKTOP\信鸽SJTU-完整版.zip"
   Delete "$TEMP\xinge-boot.log"
 
   ${If} $DeleteData == "1"
