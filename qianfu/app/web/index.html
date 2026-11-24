@@ -115,6 +115,14 @@
   </div>
 
   <!-- ===================== 弹窗 ===================== -->
+  <dialog id="day-dlg">
+    <h2 id="day-dlg-title">某天</h2>
+    <div id="day-dlg-list" class="day-dlg-list"></div>
+    <div class="dlg-actions">
+      <button id="day-dlg-add" class="primary">在这天新建</button>
+      <button id="day-dlg-close">关闭</button>
+    </div>
+  </dialog>
   <dialog id="event-dlg">
     <form method="dialog" id="event-form">
       <h2 id="dlg-title">编辑事件</h2>
@@ -209,19 +217,48 @@
       <input id="bot-secret" type="password" placeholder="机器人密钥" />
     </div>
 
-    <details class="bot-adv">
-      <summary>模型（已配好可跳过）</summary>
-      <div class="field">
-        <label>API Key</label>
-        <input id="bot-llm-key" type="password" placeholder="留空表示不改" />
+    <details class="bot-adv" id="bot-model-box">
+      <summary id="bot-model-summary">模型（已配好可跳过）</summary>
+
+      <div id="bot-llm-current" class="llm-current">
+        <span class="hint">读取当前配置…</span>
       </div>
+
       <div class="field">
-        <label>接口地址</label>
-        <input id="bot-llm-base" placeholder="https://opencode.ai/inference/go/v1" />
+        <label for="bot-llm-provider">供应商</label>
+        <select id="bot-llm-provider"></select>
+        <p class="hint" id="bot-llm-provider-hint">选供应商，接口地址和常用模型会自动带出。</p>
       </div>
+
       <div class="field">
-        <label>模型</label>
-        <input id="bot-llm-model" placeholder="deepseek-v4.1-flash" />
+        <label for="bot-llm-base">接口地址</label>
+        <input id="bot-llm-base" placeholder="https://api.openai.com/v1" spellcheck="false" />
+      </div>
+
+      <div class="field">
+        <label for="bot-llm-model-select">常用模型</label>
+        <select id="bot-llm-model-select" aria-label="该供应商的常用模型"></select>
+      </div>
+
+      <div class="field">
+        <label for="bot-llm-model">模型名</label>
+        <input id="bot-llm-model" placeholder="选完上面的常用模型会自动填" spellcheck="false" />
+        <p class="hint" id="bot-llm-model-hint">不在列表里的模型，直接改这里。</p>
+      </div>
+
+      <div class="field">
+        <label for="bot-llm-key">API Key</label>
+        <input id="bot-llm-key" type="password" placeholder="留空表示不改" autocomplete="new-password" />
+        <p class="hint" id="bot-llm-key-hint"></p>
+      </div>
+
+      <p class="hint" id="bot-llm-docs-row" hidden>
+        <a id="bot-llm-docs" href="#" target="_blank" rel="noopener noreferrer">去官网申请 Key / 看文档 →</a>
+      </p>
+
+      <div class="btn-row bot-llm-actions">
+        <button id="bot-llm-save" class="primary">保存模型</button>
+        <span id="bot-llm-msg" class="hint">换模型不用重填 QQ 的 Secret</span>
       </div>
     </details>
 

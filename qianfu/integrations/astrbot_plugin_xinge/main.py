@@ -16,6 +16,30 @@
     周五晚上7点和张三吃饭
 
 机器人会自己解析日期/时间，建好日程后回一句确认。
+
+还有**自然语言改提醒设置**：同样是说一句话，不用打开 App
+
+    提醒提前一小时
+    作业改成提前两天提醒
+    晚上十点以后别推
+    静默时间改成 23 点到 7 点
+    每小时最多推 5 条
+    关掉提醒 / 打开提醒
+    现在提醒设置是什么
+
+这些全部用规则解析，不调大模型。
+
+还有**自然语言查询**：不记指令也能问。先按关键词走规则查后端（秒回），
+规则认不出来、但确实是在提问的，才交给 agent 兜底
+
+    最近有什么作业
+    这周有什么活动
+    有新的邮件吗
+    明天有什么安排
+    今天有课吗
+
+闲聊不调模型，回一句用法提示；像「明天下午3点开会」这种要建日程的，
+还是交给建日程的规则，不会被查询抢走。
 """
 
 from __future__ import annotations
@@ -285,6 +309,860 @@ def _nl_remember(event: AstrMessageEvent, text: str, missing: list[str]) -> None
 
 def _nl_forget(event: AstrMessageEvent) -> None:
     PENDING.pop(_sid(event), None)
+
+
+# ---------- 自然语言改提醒设置 ----------
+#
+# 用户不用打开 App：在 QQ 里直接说「提醒提前一小时」「晚上十点以后别推」
+# 就能改后端的提醒参数（/bot/reminders/settings）。
+# 全部规则解析，不调大模型：快、零成本、结果确定。
+#
+# 入口是 _nl_reminder_parse(text)，返回下面四种之一：
+#   {"action": "query"}                  —— 回显全部设置
+#   {"action": "update", "patch": {...}} —— 改设置（键名同后端 settings）
+#   {"action": "usage"}                  —— 像在说设置但没解析出来，给用法提示
+#   None                                 —— 不归这里管，原样放行（建日程 / LLM）
+
+_CN_DIGITS = {
+    "零": 0, "〇": 0, "一": 1, "二": 2, "两": 2, "三": 3, "四": 4,
+    "五": 5, "六": 6, "七": 7, "八": 8, "九": 9, "十": 10, "百": 100,
+}
+_CN_NUM = r"[零〇一二两三四五六七八九十百]+"
+
+# 时长：一小时 / 30分钟 / 两天 / 半小时 / 一个半小时
+_RE_DURATION = re.compile(
+    r"(?P<num>\d+(?:\.\d+)?|" + _CN_NUM + r"|半)?\s*个?\s*(?P<half>半)?\s*"
+    r"(?P<unit>个小时|小时|钟头|分钟|分|天|日|周|星期|礼拜)"
+)
+_DURATION_SCALE = {                       # 换算成分钟
+    "小时": 60, "钟头": 60, "分钟": 1, "分": 1,
+    "天": 60 * 24, "日": 60 * 24,
+    "周": 60 * 24 * 7, "星期": 60 * 24 * 7, "礼拜": 60 * 24 * 7,
+}
+
+# 钟点：23点 / 23:00 / 十点半 / 晚上十点
+_RE_CLOCK = re.compile(
+    r"(?:(?P<period>凌晨|早上|早晨|上午|中午|下午|傍晚|晚上|夜里|夜间|晚)\s*)?"
+    r"(?P<hour>\d{1,2}|" + _CN_NUM + r")\s*点"
+    r"(?:\s*(?P<half>半)|(?:\s*(?P<minute>\d{1,2})\s*分?))?"
+)
+_RE_CLOCK_COLON = re.compile(
+    r"(?:(?P<period>凌晨|早上|早晨|上午|中午|下午|傍晚|晚上|夜里|夜间|晚)\s*)?"
+    r"(?<!\d)(\d{1,2})\s*[:：]\s*(\d{1,2})(?!\d)"
+)
+
+# 静默
+_RE_SILENCE_HINT = re.compile(
+    r"静默|免打扰|勿扰|别打扰|不要打扰|别推|不要推|别发|不要发"
+    r"|别通知|不要通知|不推送|不打扰|别吵"
+)
+_RE_SILENCE_CANCEL = re.compile(
+    r"(?:取消|关掉|关闭|解除|不用|不要|停掉)\s*(?:掉)?\s*(?:那个|我的)?"
+    r"\s*(?:静默|免打扰|勿扰)"
+    r"|(?:静默|免打扰|勿扰)\s*(?:取消|关掉|关闭|解除|不用了|不要了|停了)"
+)
+_RE_SILENCE_START = re.compile(r"以后|之后|点后|过后|开始|起")
+_RE_SILENCE_END = re.compile(r"以前|之前|点前|为止|截止")
+_RE_SILENCE_SET = re.compile(r"改成|改到|改为|设为|设成|调成|调整到")
+
+# 总开关
+_RE_SWITCH_ON = re.compile(r"打开|开启|恢复|启用|启动|开起来|开一下|重开")
+_RE_SWITCH_OFF = re.compile(
+    r"关掉|关闭|关掉吧|关了|关一下|停止|停掉|停用|禁用|关停"
+    r"|(?:别|不要|不用|别再|不要再|不用再)(?:再)?(?:给我)?\s*"
+    r"(?:推送|推了|推消息|提醒|发消息|发了|通知|打扰)"
+)
+_RE_SWITCH_TOPIC_ON = re.compile(r"提醒|推送|通知")
+_RE_SWITCH_TOPIC_OFF = re.compile(r"提醒|推送|推|通知|打扰")
+
+# 每小时上限
+_RE_CAP_ANY = re.compile(r"每小时|每个小时|一小时|一个钟头|每钟头")
+_RE_CAP_LIMIT = re.compile(
+    r"(?:最多|上限|不超过|限制|只推|只发|限量)\s*(?:推送|推|发)?\s*"
+    r"(?P<num>\d+|" + _CN_NUM + r")\s*(?:条|个|次)?"
+)
+
+# 查询 / 像查询的开关
+_RE_REM_SHOW = re.compile(
+    r"(?:打开|查看|看看|看一下|显示|发我|给我看|查一下|瞧一瞧)\s*(?:一下)?\s*"
+    r"(?:提醒|推送|通知)?\s*(?:的)?\s*(?:设置|配置|参数)"
+)
+_RE_REM_QUERY = re.compile(
+    r"(?:提醒|推送|通知|静默|免打扰)\s*(?:的)?\s*(?:设置|配置|参数)"
+    r"|(?:设置|配置|参数)\s*(?:是什么|是啥|咋样|怎么样|多少|如何|看看|显示|发我|查一下)"
+    r"|(?:现在|当前|目前|我的)\s*(?:的)?\s*(?:提醒|推送)?\s*(?:设置|配置|参数|怎么设置)"
+    r"|(?:提醒|推送|静默|提前).{0,6}(?:多少|是什么|是啥|多久|几分钟|几小时|几天)"
+    r"|怎么设置的?"
+)
+
+# 一看就是想「改」但没解析出来的（别拿查询结果糊弄）
+_RE_REM_UPDATE_HINT = re.compile(r"改成|改到|改为|设为|设成|调成|调到|调整到|改一下|改下|设置成")
+
+# 「像在说提醒设置」的粗筛：主题词 + 动作词
+_RE_REM_TOPIC = re.compile(r"提醒|推送|通知|静默|免打扰|勿扰|打扰|每小时|提前")
+_RE_REM_ACTION = re.compile(
+    r"提前|改|设|调|关|停|恢复|取消|最多|上限|以后|之后|以前|之前|多少|是什么|怎么"
+)
+
+_REMINDER_USAGE = (
+    "没认出要改哪个提醒设置。可以这样说：\n"
+    "· 提醒提前一小时 / 作业提前两天\n"
+    "· 晚上十点以后别推 / 静默改成 23:00 到 7:00\n"
+    "· 每小时最多推 5 条\n"
+    "· 关掉提醒 / 打开提醒\n"
+    "· 现在提醒设置是什么"
+)
+
+
+def _cn_int(token: str) -> int | None:
+    """中文/阿拉伯数字 → int：「十二」「二十三」「两」「5」都认。"""
+    token = (token or "").strip()
+    if not token:
+        return None
+    if token.isdigit():
+        return int(token)
+    total = 0
+    last = 0
+    for ch in token:
+        if ch == "十":
+            total += (last or 1) * 10
+            last = 0
+        elif ch == "百":
+            total += (last or 1) * 100
+            last = 0
+        elif ch in _CN_DIGITS:
+            last = _CN_DIGITS[ch]
+        else:
+            return None
+    return total + last
+
+
+def _fmt_hm(minutes: int) -> str:
+    return f"{minutes // 60:02d}:{minutes % 60:02d}"
+
+
+def _fmt_advance(minutes: int) -> str:
+    """提前量（分钟）→ 人话：1 天 / 2 小时 / 30 分钟 / 1 小时 30 分钟。"""
+    if minutes <= 0:
+        return "不提前"
+    if minutes % (24 * 60) == 0:
+        return f"{minutes // (24 * 60)} 天"
+    if minutes % 60 == 0:
+        return f"{minutes // 60} 小时"
+    if minutes > 60:
+        return f"{minutes // 60} 小时 {minutes % 60} 分钟"
+    return f"{minutes} 分钟"
+
+
+def _fmt_hours(hours: int) -> str:
+    """提前量（小时）→ 人话：2 天 / 24 小时。"""
+    if hours <= 0:
+        return "不提前"
+    if hours % 24 == 0:
+        return f"{hours // 24} 天"
+    return f"{hours} 小时"
+
+
+def _as_int(value, default: int = 0) -> int:
+    try:
+        return int(float(str(value).strip()))
+    except (TypeError, ValueError):
+        return default
+
+
+def _nl_clock_minutes(hour: int, minute: int, period: str | None) -> int | None:
+    """钟点 → 一天中的分钟数；带「晚上/下午/凌晨」的按口语换算成 24 小时制。"""
+    if not (0 <= hour <= 24 and 0 <= minute <= 59):
+        return None
+    if hour == 24 and minute == 0:
+        hour = 0
+    if period in ("凌晨", "早上", "早晨", "上午"):
+        if hour == 12:
+            hour = 0
+    elif period == "中午":
+        if 0 < hour < 11:
+            hour += 12
+    elif period == "下午":
+        if 0 < hour < 12:
+            hour += 12
+    elif period in ("晚上", "夜里", "夜间", "晚", "傍晚"):
+        if hour == 12:                       # 晚上十二点 = 零点
+            hour = 0
+        elif 0 < hour < 12:
+            hour += 12
+    if not (0 <= hour <= 23):
+        return None
+    return hour * 60 + minute
+
+
+def _nl_clock_times(text: str) -> list[int]:
+    """句子里的所有钟点（0–1439 分钟），按出现顺序。"""
+    found: list[tuple[int, int]] = []
+    for m in _RE_CLOCK_COLON.finditer(text):
+        value = _nl_clock_minutes(
+            int(m.group(2)), int(m.group(3)), m.group("period")
+        )
+        if value is not None:
+            found.append((m.start(), value))
+    for m in _RE_CLOCK.finditer(text):
+        hour = _cn_int(m.group("hour"))
+        if hour is None:
+            continue
+        minute = 30 if m.group("half") else int(m.group("minute") or 0)
+        value = _nl_clock_minutes(hour, minute, m.group("period"))
+        if value is not None:
+            found.append((m.start(), value))
+    found.sort()
+    return [value for _, value in found]
+
+
+def _nl_duration_minutes(text: str) -> int | None:
+    """「一小时」「30分钟」「两天」「半小时」「一个半小时」→ 分钟数。"""
+    for m in _RE_DURATION.finditer(text):
+        unit = (m.group("unit") or "").replace("个", "")
+        scale = _DURATION_SCALE.get(unit)
+        if scale is None:
+            continue
+        amount = 0.0
+        num_text = m.group("num")
+        if num_text == "半":
+            amount = 0.5
+        elif num_text:
+            value = _cn_int(num_text)
+            if value is None:
+                continue
+            amount = float(value)
+        if m.group("half"):
+            amount += 0.5
+        if amount <= 0:
+            continue
+        return int(round(amount * scale))
+    return None
+
+
+def _nl_reminder_silence(text: str):
+    """静默时段意图：返回 patch / False（像静默但没说清）/ None（不是这个意思）。"""
+    if _RE_SILENCE_CANCEL.search(text):
+        return {"reminder_silence_start": "00:00", "reminder_silence_end": "00:00"}
+    if not _RE_SILENCE_HINT.search(text):
+        return None
+    times = _nl_clock_times(text)
+    if len(times) >= 2:
+        start, end = times[0], times[1]
+        if start == end:
+            return False
+        return {
+            "reminder_silence_start": _fmt_hm(start),
+            "reminder_silence_end": _fmt_hm(end),
+        }
+    if len(times) == 1:
+        moment = _fmt_hm(times[0])
+        if _RE_SILENCE_END.search(text):
+            return {"reminder_silence_end": moment}
+        if _RE_SILENCE_START.search(text) or _RE_SILENCE_SET.search(text):
+            return {"reminder_silence_start": moment}
+        return False
+    return None
+
+
+def _nl_reminder_advance(text: str):
+    """提前量：默认改日程（分钟）；说了「作业」就改作业（小时）。"""
+    if "提前" not in text:
+        return None
+    if not re.search(r"提醒|日程|作业|通知|推送", text):
+        return None
+    minutes = _nl_duration_minutes(text)
+    if minutes is None:
+        return None
+    if "作业" in text:
+        hours = max(1, int(round(minutes / 60)))
+        if re.search(r"第二次|第二回", text):
+            return {"reminder_advance_hw2": max(0, min(hours, 30 * 24))}
+        return {"reminder_advance_hw": max(0, min(hours, 30 * 24))}
+    return {"reminder_advance_event": max(0, min(minutes, 7 * 24 * 60))}
+
+
+def _nl_reminder_cap(text: str):
+    """每小时最多推几条。"""
+    if not _RE_CAP_ANY.search(text):
+        return None
+    m = _RE_CAP_LIMIT.search(text)
+    if not m:
+        return None
+    value = _cn_int(m.group("num"))
+    if value is None or not (1 <= value <= 100):
+        return None
+    return {"reminder_hourly_cap": value}
+
+
+def _nl_reminder_switch(text: str):
+    """总开关：打开/关掉提醒。"""
+    on = _RE_SWITCH_ON.search(text)
+    off = _RE_SWITCH_OFF.search(text)
+    if on and off:
+        return None
+    if on:
+        if not _RE_SWITCH_TOPIC_ON.search(text):
+            return None
+        return {"reminder_enabled": 1}
+    if off:
+        if not _RE_SWITCH_TOPIC_OFF.search(text):
+            return None
+        return {"reminder_enabled": 0}
+    return None
+
+
+def _nl_reminder_parse(text: str) -> dict | None:
+    """把一句话解析成提醒设置意图；认不出返回 None（原样放行）。
+
+    返回：
+      {"action": "query"}                  —— 回显全部设置
+      {"action": "update", "patch": {...}} —— 改设置（键名同 /bot/reminders/settings）
+      {"action": "usage"}                  —— 像在说设置但没说清，给用法提示
+    """
+    text = (text or "").strip()
+    if not text or text.startswith("/"):
+        return None
+
+    # 「打开提醒设置」「看看配置」是查询，不是总开关
+    if _RE_REM_SHOW.search(text):
+        return {"action": "query"}
+
+    patch: dict = {}
+    unclear = False
+
+    silence = _nl_reminder_silence(text)
+    if silence is False:
+        unclear = True
+    elif silence:
+        patch.update(silence)
+
+    # 静默句里常带「别推」，命中静默后就别再当总开关
+    if not patch and not unclear:
+        switch = _nl_reminder_switch(text)
+        if switch:
+            patch.update(switch)
+
+    if not patch and not unclear:
+        advance = _nl_reminder_advance(text)
+        if advance:
+            patch.update(advance)
+
+    if not patch and not unclear:
+        cap = _nl_reminder_cap(text)
+        if cap:
+            patch.update(cap)
+
+    if patch:
+        return {"action": "update", "patch": patch}
+    if unclear:
+        return {"action": "usage"}
+    if _RE_REM_UPDATE_HINT.search(text) and _RE_REM_TOPIC.search(text):
+        return {"action": "usage"}          # 「提醒设置改成每天」这种没解析出来
+    if _RE_REM_QUERY.search(text):
+        return {"action": "query"}
+    if _RE_REM_TOPIC.search(text) and _RE_REM_ACTION.search(text):
+        return {"action": "usage"}
+    return None
+
+
+def _reminder_settings_text(data: dict) -> str:
+    """查询回显：后端 settings 全量 → 一段话。"""
+    data = data if isinstance(data, dict) else {}
+    enabled = _as_int(data.get("reminder_enabled"), 1) != 0
+    advance_event = _as_int(data.get("reminder_advance_event"), 60)
+    advance_hw = _as_int(data.get("reminder_advance_hw"), 24)
+    advance_hw2 = _as_int(data.get("reminder_advance_hw2"), 2)
+    cap = _as_int(data.get("reminder_hourly_cap"), REMINDER_HOURLY_CAP)
+    start = str(data.get("reminder_silence_start") or "01:00").strip()
+    end = str(data.get("reminder_silence_end") or "07:30").strip()
+
+    lines = ["信鸽提醒设置"]
+    lines.append(f"Bot 主动推送：{'开' if enabled else '关'}")
+    lines.append(
+        f"日程提醒：提前 {_fmt_advance(advance_event)}"
+        if advance_event > 0 else "日程提醒：开始时提醒"
+    )
+    hw = f"作业提醒：提前 {_fmt_hours(advance_hw)}" if advance_hw > 0 else "作业提醒：截止时提醒"
+    hw += "（第二次" + (f"提前 {_fmt_hours(advance_hw2)}" if advance_hw2 > 0 else "关") + "）"
+    lines.append(hw)
+    lines.append("静默时段：已取消" if start == end else f"静默时段：{start}–{end}")
+    lines.append(f"每小时最多：{cap} 条" if cap > 0 else "每小时最多：不限")
+    lines.append("")
+    lines.append("改设置直接说：提醒提前一小时 / 晚上十点以后别推 / 关掉提醒")
+    return "\n".join(lines)
+
+
+def _reminder_confirm(patch: dict, data: dict) -> str:
+    """改完回一句确认，带上改后的值（以后端返回为准）。"""
+    data = data if isinstance(data, dict) else {}
+    parts: list[str] = []
+
+    if "reminder_enabled" in patch:
+        enabled = _as_int(data.get("reminder_enabled"), patch.get("reminder_enabled") or 0)
+        parts.append("提醒已打开" if enabled else "提醒已关掉，不再主动推送")
+
+    if "reminder_advance_event" in patch:
+        value = _as_int(data.get("reminder_advance_event"), patch["reminder_advance_event"])
+        if value > 0:
+            parts.append(f"日程提醒改为提前 {_fmt_advance(value)}")
+        else:
+            parts.append("日程提醒改为不提前（开始时提醒）")
+
+    if "reminder_advance_hw" in patch:
+        value = _as_int(data.get("reminder_advance_hw"), patch["reminder_advance_hw"])
+        if value > 0:
+            parts.append(f"作业提醒改为提前 {_fmt_hours(value)}")
+        else:
+            parts.append("作业提醒改为不提前（截止时提醒）")
+
+    if "reminder_advance_hw2" in patch:
+        value = _as_int(data.get("reminder_advance_hw2"), patch["reminder_advance_hw2"])
+        if value > 0:
+            parts.append(f"作业第二次提醒改为提前 {_fmt_hours(value)}")
+        else:
+            parts.append("作业第二次提醒已关掉")
+
+    if "reminder_silence_start" in patch or "reminder_silence_end" in patch:
+        start = str(data.get("reminder_silence_start") or "").strip()
+        end = str(data.get("reminder_silence_end") or "").strip()
+        if start and end and start != end:
+            parts.append(f"静默时段改为 {start}–{end}")
+        elif start and end:
+            parts.append("静默时段已取消")
+
+    if "reminder_hourly_cap" in patch:
+        value = _as_int(data.get("reminder_hourly_cap"), patch["reminder_hourly_cap"])
+        if value > 0:
+            parts.append(f"每小时最多推 {value} 条")
+        else:
+            parts.append("每小时推送不再限量")
+
+    if not parts:
+        return "设置没变"
+    return "好，" + "，".join(parts)
+
+
+# ---------- 自然语言查询路由 ----------
+#
+# 没匹配 /指令 的文字不一律丢给大模型（25–60 秒，还花钱）：
+# 先按关键词走规则快速路径，直接查后端拼一段话，秒回；
+# 只有规则认不出来、但确实是在提问的，才交给 /agent/chat 兜底。
+#
+# 优先级 -8：排在「改提醒设置」(-5) 之后、「建日程」(-10) 之前。
+# 认领不了的原样放行，不影响原有逻辑。
+
+NL_AGENT_TIMEOUT = 45           # agent 一轮通常 25–60 秒，超时就不干等了
+NL_AGENT_SLOW = "这个问题想得有点久，先试试 /作业 /活动 这种指令"
+NL_QUERY_USAGE = (
+    "我是信鸽，可以直接问我：\n"
+    "· 最近有什么作业（DDL）\n"
+    "· 这周有什么活动\n"
+    "· 有新的邮件吗\n"
+    "· 明天有什么安排\n"
+    "· 今天有课吗\n"
+    "急的话用指令更快：/作业 /活动 /邮件 /日程 /日历"
+)
+
+# 关键词 → 意图，顺序就是优先级：越具体的越靠前。
+RE_NLQ_DEADLINE = re.compile(r"作业|ddl|deadline|截止|要交|该交|快交|due", re.I)
+RE_NLQ_ACTIVITY = re.compile(r"活动|报名|二课|第二课堂|讲座|劳动学时")
+RE_NLQ_MAIL = re.compile(r"邮件|邮箱|收件箱|信箱|来信")
+RE_NLQ_COURSE = re.compile(
+    r"课表|课程表|课程|上课|有课|几节课|几门课|什么课|哪些课|哪门课|第.{1,3}节|教室"
+)
+RE_NLQ_SCHEDULE_WORD = re.compile(r"日程|安排|日历|行程|待办")
+RE_NLQ_WEEKDAY = re.compile(r"(?P<pre>下下|下|这|本)?(?:周|星期|礼拜)(?P<wd>[一二三四五六日天])")
+RE_NLQ_TIME = re.compile(
+    r"今天|今日|今晚|明天|明日|后天|大后天|这周|本周|下周|下下周|最近|这几天|周末"
+    r"|(?:(?:下下|下|这|本)?(?:周|星期|礼拜)[一二三四五六日天])"
+)
+RE_NLQ_AGENDA = re.compile(
+    r"安排|日程|事|课|作业|活动|邮件|考试|开会|会议|忙|空|干|做"
+    r"|有什么|有啥|有没有|哪些|多少"
+)
+# 强疑问词：有就当作问题，交给 agent
+RE_NLQ_QUESTION_STRONG = re.compile(
+    r"[？?]|什么|啥|有没有|有哪些|哪些|多少|几点|怎么样|怎么|为什么|如何|哪"
+)
+# 弱疑问词：短句里的「吗/呢」多半是闲聊，不值得为它调 agent
+RE_NLQ_QUESTION_TAIL = re.compile(r"吗|呢|嘛")
+# 「要建日程」的动作/时间线索：有这些就不抢，交给 -10
+RE_NLQ_CREATE = re.compile(
+    r"\d{1,2}\s*(?:[:：]\s*\d{1,2}|[点时])|点半|一刻|三刻"
+    r"|凌晨|早上|早晨|上午|中午|下午|傍晚|晚上|夜里|今晚"
+    r"|开会|会议|上课|上机|实验|吃饭|见面|面试|体检|考试|报名|讲座|组会"
+    r"|讨论|复习|提交|截止|打球|跑步|训练|电影|自习|聚会|帮我|给我|记一下|提醒我"
+)
+RE_NLQ_CHAT = re.compile(
+    r"^(?:你好|您好|你好呀|你好啊|你好吗|哈喽|嗨|hello|hi|在吗|在不在|在么|在嘛"
+    r"|早上好|中午好|下午好|晚上好|晚安|早安|谢谢|多谢|谢了|辛苦了"
+    r"|测试|test|你是谁|你是什么|你能干嘛|能干嘛|怎么用|怎么使用|帮助|help|菜单|使用说明)"
+    r"[\s!！。.~～?？,，…]*$",
+    re.I,
+)
+RE_NLQ_PICK = re.compile(r"^\s*\d{1,2}\s*$")     # 回数字看详情，别抢
+RE_NLQ_WORD = re.compile(r"\w")                  # 纯表情 / 纯问号不算消息
+
+
+def _nlq_short(text, limit: int = 34) -> str:
+    """标题压成一行，太长就截断。
+
+    Args:
+        text: 原文，可能是 None。
+        limit: 最多留几个字。
+
+    Returns:
+        单行短文本。
+    """
+    line = " ".join(str(text or "").split())
+    return line if len(line) <= limit else line[: max(1, limit - 1)] + "…"
+
+
+def _nlq_intent(text: str) -> str:
+    """关键词 → 查询意图。
+
+    Args:
+        text: 用户原话（已去首尾空白）。
+
+    Returns:
+        deadline / activity / mail / course / event 之一；认不出来返回空串。
+    """
+    if RE_NLQ_DEADLINE.search(text):
+        return "deadline"
+    if RE_NLQ_ACTIVITY.search(text):
+        return "activity"
+    if RE_NLQ_MAIL.search(text):
+        return "mail"
+    if RE_NLQ_COURSE.search(text):
+        return "course"
+    if RE_NLQ_SCHEDULE_WORD.search(text):
+        return "event"
+    # 只说时间不算（「今天真热」），得有安排/事/课这类词，或者问的是周几
+    if RE_NLQ_TIME.search(text) and (RE_NLQ_AGENDA.search(text) or RE_NLQ_WEEKDAY.search(text)):
+        return "event"
+    return ""
+
+
+def _nlq_in_range(stamp, start: date, end: date) -> bool:
+    """时间串的日期是否落在闭区间 [start, end] 里；解析不了就当在。
+
+    Args:
+        stamp: "2026-11-24 23:59" / "2026-11-24" 这类时间串。
+        start: 区间开始日期。
+        end: 区间结束日期。
+
+    Returns:
+        在区间里（或解析不了）返回 True。
+    """
+    text = str(stamp or "")[:10]
+    if not text:
+        return True
+    try:
+        day = date.fromisoformat(text)
+    except ValueError:
+        return True
+    return start <= day <= end
+
+
+def _nlq_range(text: str) -> tuple[date, date, str]:
+    """把口语里的日期词换成具体区间。
+
+    Args:
+        text: 用户原话。
+
+    Returns:
+        (start, end, 人话标签)，闭区间；没提日期默认从今天起 7 天。
+    """
+    today = date.today()
+    monday = today - timedelta(days=today.weekday())
+
+    if "大后天" in text:
+        day = today + timedelta(days=3)
+        return day, day, "大后天"
+    if "后天" in text:
+        day = today + timedelta(days=2)
+        return day, day, "后天"
+    if "明天" in text or "明日" in text:
+        day = today + timedelta(days=1)
+        return day, day, "明天"
+    if "今天" in text or "今日" in text or "今晚" in text:
+        return today, today, "今天"
+
+    # 「周三」「下周三」「这周五」：具体某一天
+    match = RE_NLQ_WEEKDAY.search(text)
+    if match:
+        word = match.group("wd")
+        target = 7 if word == "天" else WEEKDAY_CN.find(word) + 1
+        if target:
+            pre = match.group("pre") or ""
+            delta = target - today.isoweekday()
+            if pre == "下":
+                delta += 7
+            elif pre == "下下":
+                delta += 14
+            elif not pre and delta < 0:
+                delta += 7                      # 只说「周三」= 最近的周三
+            day = today + timedelta(days=delta)
+            return day, day, f"周{WEEKDAY_CN[day.weekday()]}"
+
+    if "下周末" in text:
+        saturday = monday + timedelta(days=12)
+        return saturday, saturday + timedelta(days=1), "下周末"
+    if "周末" in text:
+        saturday = monday + timedelta(days=5)
+        return saturday, saturday + timedelta(days=1), "周末"
+    if "下下周" in text:
+        start = monday + timedelta(days=14)
+        return start, start + timedelta(days=6), "下下周"
+    if "下周" in text:
+        start = monday + timedelta(days=7)
+        return start, start + timedelta(days=6), "下周"
+    if "这周" in text or "本周" in text:
+        return monday, monday + timedelta(days=6), "这周"
+    if "最近" in text or "这几天" in text:
+        return today, today + timedelta(days=6), "最近 7 天"
+    return today, today + timedelta(days=6), "未来 7 天"
+
+
+def _nlq_deadline_text(items: list, label: str) -> str:
+    """带截止时间的条目 → 一段话（格式对齐 /ddl）。
+
+    Args:
+        items: /bot/deadlines 返回的条目。
+        label: 时间范围的人话标签。
+
+    Returns:
+        可以直接发给用户的文本。
+    """
+    if not items:
+        return f"{label}没有要交的东西"
+    lines = [f"{label}要交（{len(items)} 项）"]
+    for i, item in enumerate(items[:10], 1):
+        lines.append(f'{i}. {_nlq_short(item.get("title"))}')
+        lines.append(f'   {str(item.get("deadline") or item.get("start") or "")[:16]}')
+    if len(items) > 10:
+        lines.append(f"…还有 {len(items) - 10} 项")
+    lines.append("")
+    lines.append("回数字看详情")
+    return "\n".join(lines)
+
+
+def _nlq_event_text(events: list, derived: list, label: str) -> str:
+    """日程 + 带截止的待办按天拼成一段话。
+
+    Args:
+        events: /events 里的 events（手动/对话建的日程）。
+        derived: /events 里的 derived（带截止时间的作业等，只读）。
+        label: 时间范围的人话标签。
+
+    Returns:
+        可以直接发给用户的文本。
+    """
+    days: dict[str, list[str]] = {}
+
+    for event in events:
+        day = str(event.get("event_date") or "")[:10]
+        if not day:
+            continue
+        when = str(event.get("start_time") or "")
+        end_time = str(event.get("end_time") or "")
+        if when and end_time:
+            when = f"{when}-{end_time}"
+        place = f' @{_nlq_short(event.get("location"), 12)}' if event.get("location") else ""
+        mark = "（已完成）" if event.get("done") else ""
+        days.setdefault(day, []).append(
+            f'{when or "全天"} {_nlq_short(event.get("title"), 30)}{place}{mark}'
+        )
+
+    for item in derived:
+        stamp = str(item.get("start") or item.get("deadline") or "")
+        day = stamp[:10]
+        if not day:
+            continue
+        mark = "（已完成）" if item.get("done") else "（作业）"
+        days.setdefault(day, []).append(
+            f'{stamp[11:16] or "全天"} {_nlq_short(item.get("title"), 30)}{mark}'
+        )
+
+    if not days:
+        return f"{label}没有安排"
+
+    total = sum(len(rows) for rows in days.values())
+    lines = [f"{label}的安排（{total} 条）"]
+    for day in sorted(days):
+        lines.append(f"\n{_nl_when(day)}")
+        for row in sorted(days[day]):
+            lines.append(f"· {row}")
+    return "\n".join(lines)
+
+
+def _nlq_activity_text(items: list) -> str:
+    """第二课堂活动 → 一段话。
+
+    Args:
+        items: /bot/second-classroom 返回的条目。
+
+    Returns:
+        可以直接发给用户的文本。
+    """
+    if not items:
+        return "最近没有第二课堂活动"
+    lines = [f"第二课堂活动（{len(items)} 个）"]
+    for i, item in enumerate(items[:8], 1):
+        extra = item.get("extra") if isinstance(item.get("extra"), dict) else {}
+        when = str(
+            extra.get("start") or item.get("published") or item.get("deadline") or ""
+        )[:16].replace("T", " ")
+        place = extra.get("place") or ""
+        lines.append(f'{i}. {_nlq_short(item.get("title"))}')
+        tail = " · ".join(x for x in (when, _nlq_short(place, 14)) if x)
+        if tail:
+            lines.append(f"   {tail}")
+    lines.append("")
+    lines.append("回数字看详情")
+    return "\n".join(lines)
+
+
+def _nlq_mail_text(data: dict) -> str:
+    """收件箱 → 一段话。
+
+    Args:
+        data: /bot/mail 返回的 {"messages": [...], "unread": n}。
+
+    Returns:
+        可以直接发给用户的文本。
+    """
+    data = data if isinstance(data, dict) else {}
+    messages = data.get("messages") or []
+    if not messages:
+        return "收件箱是空的"
+    unread = _as_int(data.get("unread"), 0)
+    lines = [f"收件箱（未读 {unread}）" if unread else "收件箱"]
+    for i, message in enumerate(messages[:8], 1):
+        sender = message.get("from_name") or message.get("from_addr") or "未知发件人"
+        lines.append(f'{i}. {_nlq_short(message.get("subject"), 36)}')
+        lines.append(f'   {_nlq_short(sender, 16)} · {str(message.get("date") or "")[:16]}')
+    return "\n".join(lines)
+
+
+def _nlq_weeks(zcd: str) -> list[int]:
+    """解析教务的周次串（同 xinge.jwc.parse_weeks，插件这边不能 import 它）。
+
+    Args:
+        zcd: 形如 "1-12周"、"3-15周(单)"、"1-8周,10-16周"。
+
+    Returns:
+        周次列表，从 1 开始。
+    """
+    text = str(zcd or "").strip()
+    if not text:
+        return []
+    parity = "odd" if "单" in text else ("even" if "双" in text else "")
+    weeks: list[int] = []
+    for part in re.split(r"[,，]", text):
+        nums = [int(n) for n in re.findall(r"\d+", part)]
+        if len(nums) >= 2:
+            weeks.extend(range(nums[0], nums[1] + 1))
+        elif nums:
+            weeks.append(nums[0])
+    if parity == "odd":
+        weeks = [w for w in weeks if w % 2 == 1]
+    elif parity == "even":
+        weeks = [w for w in weeks if w % 2 == 0]
+    return sorted(set(weeks))
+
+
+def _nlq_week_no(term_start: date, day: date) -> int:
+    """校历周次：学期开始那周算第 1 周。
+
+    Args:
+        term_start: 学期开始日期。
+        day: 要算的日期。
+
+    Returns:
+        周次（可能 <= 0，说明还没开学）。
+    """
+    return (day - term_start).days // 7 + 1
+
+
+def _nlq_course_text(courses: list, start: date, end: date, label: str,
+                     term_start: date | None) -> str:
+    """课表 → 一段话，只留区间内、当周有课的课。
+
+    Args:
+        courses: /jwc/timetable 返回的 courses。
+        start: 区间开始日期。
+        end: 区间结束日期。
+        label: 时间范围的人话标签。
+        term_start: 校历学期开始日期；None 表示不按周次过滤。
+
+    Returns:
+        可以直接发给用户的文本。
+    """
+    days = [start + timedelta(days=i) for i in range((end - start).days + 1)]
+    grouped: list[tuple[date, list[str]]] = []
+
+    for day in days:
+        rows: list[str] = []
+        for course in courses:
+            if _as_int(course.get("weekday"), 0) != day.isoweekday():
+                continue
+            weeks = _nlq_weeks(course.get("weeks"))
+            if term_start is not None and weeks and _nlq_week_no(term_start, day) not in weeks:
+                continue
+            period = str(course.get("periods") or "").strip()
+            name = _nlq_short(course.get("name"), 24)
+            room = str(course.get("room") or "").strip()
+            line = f"{period} {name}".strip()
+            if room:
+                line += f' @{_nlq_short(room, 12)}'
+            rows.append(line)
+        if rows:
+            grouped.append((day, rows))
+
+    if not grouped:
+        return f"{label}没有课"
+
+    if len(days) == 1:
+        rows = grouped[0][1]
+        return f"{label}的课（{len(rows)} 条）\n" + "\n".join(f"· {row}" for row in rows)
+
+    total = sum(len(rows) for _, rows in grouped)
+    lines = [f"{label}的课（{total} 条）"]
+    for day, rows in grouped:
+        lines.append(f"\n{_nl_when(day.isoformat())}")
+        for row in rows:
+            lines.append(f"· {row}")
+    return "\n".join(lines)
+
+
+async def _nlq_agent(text: str) -> str:
+    """规则搞不定的问题才走 agent；超时给一句提示，不让用户干等。
+
+    Args:
+        text: 用户原话。
+
+    Returns:
+        agent 的回答，或超时/失败时的兜底提示。
+    """
+    try:
+        async with httpx.AsyncClient(timeout=NL_AGENT_TIMEOUT) as client:
+            resp = await client.post(
+                BASE + "/agent/chat",
+                json={"messages": [{"role": "user", "content": text}]},
+            )
+            resp.raise_for_status()
+            data = resp.json() or {}
+    except httpx.TimeoutException:
+        logger.info("agent 查询超时，回兜底提示")
+        return NL_AGENT_SLOW
+    except Exception as exc:                        # noqa: BLE001
+        logger.warning(f"agent 查询失败：{exc}")
+        return "AI 暂时没响应，先试试 /作业 /活动 /邮件 /日程"
+
+    reply = str(data.get("reply") or "").strip()
+    return reply[:1500] or NL_AGENT_SLOW
 
 
 class XingePlugin(Star):
@@ -665,6 +1543,186 @@ class XingePlugin(Star):
             return
 
         yield event.plain_result(self._detail(recalled["items"], index, recalled["kind"]))
+
+    # ---------- 自然语言改提醒设置 ----------
+
+    @filter.event_message_type(filter.EventMessageType.ALL, priority=-5)
+    async def reminder_nl(self, event: AstrMessageEvent):
+        """不用指令、不用开 App：说一句话就改提醒设置。
+
+        优先级 -5：排在所有 /指令（0）后面，排在自然语言建日程（-10）前面。
+        认出来的句子自己答并拦住后续兜底；认不出来的原样放行，不打扰原有逻辑。
+        """
+        text = (event.message_str or "").strip()
+        if not text or text.startswith("/"):
+            return
+
+        # 群聊没 @ 机器人 / 没唤醒词就不插嘴（交给后面的兜底按原逻辑 stop）
+        if not event.is_at_or_wake_command:
+            return
+
+        parsed = _nl_reminder_parse(text)
+        if not parsed:
+            return
+
+        # 「明天下午三点提醒我开会」这种是建日程，让给后面的兜底，别抢
+        if RE_NL_DATE.search(text) and _nl_looks_like_schedule(text):
+            return
+
+        action = parsed.get("action")
+
+        if action == "query":
+            try:
+                data = await _rjson("/bot/reminders/settings")
+            except Exception as exc:                  # noqa: BLE001
+                logger.warning(f"读取提醒设置失败：{exc}")
+                yield event.plain_result("后端没响应，暂时读不到提醒设置")
+                _nl_silence(event)
+                return
+            _nl_forget(event)
+            yield event.plain_result(_reminder_settings_text(data or {}))
+            _nl_silence(event)
+            return
+
+        if action == "usage":
+            yield event.plain_result(_REMINDER_USAGE)
+            _nl_silence(event)
+            return
+
+        patch = parsed.get("patch") or {}
+        try:
+            data = await _rpost("/bot/reminders/settings", patch)
+        except Exception as exc:                      # noqa: BLE001
+            logger.error(f"改提醒设置失败：{exc}")
+            yield event.plain_result("改设置失败：后端没响应，稍后再试")
+            _nl_silence(event)
+            return
+
+        _nl_forget(event)
+        yield event.plain_result(_reminder_confirm(patch, data or {}))
+        _nl_silence(event)
+
+    # ---------- 自然语言查询 ----------
+
+    @filter.event_message_type(filter.EventMessageType.ALL, priority=-8)
+    async def nl_query(self, event: AstrMessageEvent):
+        """没匹配指令的自然语言：关键词走规则快速查询，问题才交给 agent。
+
+        优先级 -8：排在「改提醒设置」(-5) 后面、「建日程」(-10) 前面。
+        规则能认的直接查后端并回答（毫秒级）；规则认不出来、但确实是在
+        提问的才调 /agent/chat（25–60 秒，超时给一句提示）；闲聊给用法提
+        示，不浪费模型调用；像建日程的原样放行给 -10。
+        """
+        text = (event.message_str or "").strip()
+        if not text or text.startswith(("/", "／")):
+            return
+        if RE_NLQ_PICK.match(text) or not RE_NLQ_WORD.search(text):
+            return                                  # 回数字 / 纯表情，别抢
+
+        # 群聊没 @ 机器人 / 没唤醒词就不插嘴（和另外两个兜底 handler 一致）
+        if not event.is_at_or_wake_command:
+            return
+
+        # 正在补建日程（上一条缺日期/标题）：让给 -10，别打断用户的补充
+        if _nl_pending(event):
+            return
+
+        intent = _nlq_intent(text)
+
+        # 看着像在描述一件要建日程的事：让给 -10。
+        # 例外：命中查询关键词、又没有钟点/开会这类线索的（「明天的安排」
+        # 「今天要交的作业」）明显是查询，别让 -10 建成一条奇怪的日程。
+        if _nl_looks_like_schedule(text) and not (intent and not RE_NLQ_CREATE.search(text)):
+            return
+
+        if not intent:
+            # 只有真像个问题才交给 agent（25–60 秒，慢）；闲聊/短句给一句用法提示
+            question = bool(RE_NLQ_QUESTION_STRONG.search(text)) or (
+                len(text) > 6 and bool(RE_NLQ_QUESTION_TAIL.search(text))
+            )
+            if not question or RE_NLQ_CHAT.match(text):
+                yield event.plain_result(NL_QUERY_USAGE)
+                _nl_silence(event)
+                return
+            reply = await _nlq_agent(text)
+            yield event.plain_result(reply)
+            _nl_silence(event)
+            return
+
+        try:
+            reply = await self._nlq_answer(event, intent, text)
+        except Exception as exc:                    # noqa: BLE001
+            logger.warning(f"自然语言查询失败（{intent}）：{exc}")
+            reply = "查询失败，后端没响应，先试试 /作业 /活动 /邮件 /日程"
+        yield event.plain_result(reply)
+        _nl_silence(event)
+
+    async def _nlq_answer(self, event: AstrMessageEvent, intent: str, text: str) -> str:
+        """规则快速路径：按意图查后端，拼一段可以直接发出去的话。
+
+        Args:
+            event: 当前消息事件（查完列表要记住，支持回数字看详情）。
+            intent: _nlq_intent 认出来的意图。
+            text: 用户原话。
+
+        Returns:
+            给用户看的整段回答。
+        """
+        today = date.today()
+        start, end, label = _nlq_range(text)
+        days = max(1, min((end - today).days + 1, 30))
+
+        if intent == "deadline":
+            data = await _json("/bot/deadlines", days=days)
+            items = [
+                item
+                for item in (data.get("items") or [])
+                if _nlq_in_range(item.get("deadline") or item.get("start"), start, end)
+            ]
+            if items:
+                _remember(event, items, "作业")
+            return _nlq_deadline_text(items, label)
+
+        if intent == "activity":
+            data = await _json("/bot/second-classroom", limit=8)
+            items = data.get("items") or []
+            if items:
+                _remember(event, items, "活动")
+            return _nlq_activity_text(items)
+
+        if intent == "mail":
+            try:
+                data = await _json("/bot/mail", limit=8)
+            except Exception as exc:                # noqa: BLE001
+                logger.info(f"自然语言查邮件失败：{exc}")
+                return "邮件查不了：可能还没配置邮箱。去 App 的「机器人」里填一下邮箱，再试。"
+            return _nlq_mail_text(data)
+
+        if intent == "event":
+            data = await _json("/events", start=start.isoformat(), end=end.isoformat())
+            return _nlq_event_text(
+                data.get("events") or [], data.get("derived") or [], label
+            )
+
+        # 课表：没提时间就看本周
+        if not (RE_NLQ_TIME.search(text) or RE_NLQ_WEEKDAY.search(text)):
+            monday = today - timedelta(days=today.weekday())
+            start, end, label = monday, monday + timedelta(days=6), "本周"
+
+        term_start = None
+        try:
+            calendar = await _json("/jwc/calendar")
+            term_start = date.fromisoformat(str(calendar.get("start") or "")[:10])
+        except Exception as exc:                    # noqa: BLE001
+            logger.info(f"读校历失败，课表不按周次过滤：{exc}")
+
+        try:
+            data = await _json("/jwc/timetable")
+        except Exception as exc:                    # noqa: BLE001
+            logger.info(f"读课表失败：{exc}")
+            return "课表查不到：教务还没登录。去 App 里重新登录 jAccount 再试，或者用 /日历 看。"
+
+        return _nlq_course_text(data.get("courses") or [], start, end, label, term_start)
 
     # ---------- 自然语言建日程 ----------
 

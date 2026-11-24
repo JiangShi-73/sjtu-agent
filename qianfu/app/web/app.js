@@ -510,6 +510,88 @@ function selectDay(ds, d, currentMonth) {
 
 // 日历上只放「真的进了日程」的：课表 + 手动/转过来的日程。
 // 信息流里带 ddl 的条目不会自动上日历——那会把日历淹掉。
+
+// ---- 双击某天看当天详细事件 ----
+let dayDlgDate = "";
+
+function openDayDetail(ds) {
+  dayDlgDate = ds;
+  const day = new Date(ds + "T00:00:00");
+  const week = ["日", "一", "二", "三", "四", "五", "六"][day.getDay()];
+  $("#day-dlg-title").textContent = ds + " 周" + week;
+
+  const manual = calendarEvents(ds).slice();
+  const derived = derivedEvents(ds).slice();
+  const box = $("#day-dlg-list");
+  box.innerHTML = "";
+
+  if (!manual.length && !derived.length) {
+    box.innerHTML = '<p class="hint">这天没有安排</p>';
+  }
+
+  function row(opts) {
+    const r = document.createElement("div");
+    r.className = "day-row" + (opts.done ? " done" : "");
+    const time = document.createElement("span");
+    time.className = "day-row-time";
+    time.textContent = opts.time || "全天";
+    const main = document.createElement("div");
+    main.className = "day-row-main";
+    const title = document.createElement("div");
+    title.className = "day-row-title";
+    title.textContent = opts.title;
+    main.appendChild(title);
+    const meta = [opts.kind, opts.location, opts.note].filter(Boolean).join(" · ");
+    if (meta) {
+      const m = document.createElement("div");
+      m.className = "day-row-meta";
+      m.textContent = meta;
+      main.appendChild(m);
+    }
+    r.append(time, main);
+    if (opts.onclick) { r.style.cursor = "pointer"; r.onclick = opts.onclick; }
+    box.appendChild(r);
+  }
+
+  manual.forEach((ev) => {
+    const t = ev.start_time
+      ? ev.start_time + (ev.end_time ? "–" + ev.end_time : "")
+      : "";
+    row({
+      time: t,
+      title: ev.title,
+      kind: ev.source === "jwc" ? "课程" : (ev.done ? "已完成" : "日程"),
+      location: ev.location,
+      note: ev.note,
+      done: !!ev.done,
+      onclick: () => { $("#day-dlg").close(); openDialog(ev); },
+    });
+  });
+
+  derived.forEach((dv) => {
+    const isEvent = !dv.deadline && dv.start;
+    const stamp = isEvent ? dv.start : dv.deadline;
+    const t = isEvent
+      ? (dv.all_day ? "" : String(stamp).slice(11, 16))
+      : "截止 " + String(stamp).slice(11, 16);
+    row({
+      time: t,
+      title: dv.title,
+      kind: dv.category + (dv.done ? " · 已完成" : ""),
+      location: dv.location,
+      done: !!dv.done,
+      onclick: dv.url ? () => window.open(dv.url, "_blank") : null,
+    });
+  });
+
+  $("#day-dlg").showModal();
+}
+
+$("#day-dlg-close").onclick = () => $("#day-dlg").close();
+$("#day-dlg-add").onclick = () => {
+  $("#day-dlg").close();
+  openDialog({ event_date: dayDlgDate });
+};
 function calendarEvents(ds) {
   return state.events.filter((e) => {
     if (e.event_date !== ds) return false;
@@ -521,7 +603,8 @@ function calendarEvents(ds) {
 // 带截止时间的条目（Canvas 作业 / 实验 / 慕课 / 知途）画在日历上
 function derivedEvents(ds) {
   if (!state.showPlan) return [];
-  return state.derived.filter((x) => String(x.deadline || "").slice(0, 10) === ds);
+  // 课程事件没有 deadline，用 start；作业用 deadline
+  return state.derived.filter((x) => String(x.start || x.deadline || "").slice(0, 10) === ds);
 }
 
 function renderBig() {
@@ -557,26 +640,37 @@ function renderBig() {
       chip.className = "chip manual" + (ev.done ? " done" : "");
       chip.textContent = (ev.start_time ? ev.start_time + " " : "") + ev.title;
       chip.title = [ev.start_time, ev.end_time, ev.location].filter(Boolean).join(" ");
-      chip.onclick = (e) => { e.stopPropagation(); openDialog(ev); };
+      chip.onclick = (e) => {
+        e.stopPropagation();
+        if (chip._t) { clearTimeout(chip._t); chip._t = null; openDayDetail(ds); return; }
+        chip._t = setTimeout(() => { chip._t = null; openDialog(ev); }, 260);
+      };
       list.appendChild(chip);
     }
 
     for (const dv of derivedEvents(ds)) {
       const chip = document.createElement("div");
       chip.className = "chip derived" + (dv.done ? " done" : "");
-      const hhmm = String(dv.deadline || "").slice(11, 16);
-      chip.textContent = (hhmm ? "截止 " + hhmm + " " : "") + dv.title;
-      chip.title = (dv.category || "") + " · " + (dv.deadline || "");
-      if (dv.url) {
-        chip.onclick = (e) => { e.stopPropagation(); window.open(dv.url, "_blank"); };
-      } else {
-        chip.onclick = (e) => e.stopPropagation();
-      }
+      const isEvent = !dv.deadline && dv.start;
+      const when = String((isEvent ? dv.start : dv.deadline) || "").slice(11, 16);
+      const prefix = isEvent ? (dv.all_day ? "" : when + " ") : (when ? "截止 " + when + " " : "");
+      chip.textContent = prefix + dv.title;
+      chip.title = [dv.category, dv.location, dv.deadline || dv.start].filter(Boolean).join(" · ");
+      chip.onclick = (e) => {
+        e.stopPropagation();
+        if (chip._t) { clearTimeout(chip._t); chip._t = null; openDayDetail(ds); return; }
+        chip._t = setTimeout(() => {
+          chip._t = null;
+          if (dv.url) window.open(dv.url, "_blank");
+        }, 260);
+      };
       list.appendChild(chip);
     }
 
     cell.appendChild(list);
     cell.onclick = () => selectDay(ds, d, m);
+    cell.ondblclick = (e) => { e.preventDefault(); openDayDetail(ds); };
+    cell.title = "双击看当天全部安排";
     grid.appendChild(cell);
   }
 }
@@ -1438,6 +1532,220 @@ async function refreshBotStatus() {
   ].join("");
 
   if (s.qq_appid) $("#bot-appid").value = s.qq_appid;
+
+  try {
+    await refreshLlmSettings(s);
+  } catch (e) {
+    $("#bot-llm-provider-hint").textContent = "供应商目录读取失败，直接手填地址和模型也行。";
+  }
+}
+
+
+/* ---------------- 模型供应商 ---------------- */
+
+// GET /setup/providers 的缓存；llmStatus 是 /setup/status 里回显的当前配置
+let llmCatalog = null;
+let llmStatus = null;
+
+const normBase = (url) => String(url || "").trim().replace(/\/+$/, "").toLowerCase();
+
+async function ensureLlmCatalog() {
+  if (llmCatalog) return llmCatalog;
+  const list = await api("/setup/providers").catch(() => []);
+  llmCatalog = Array.isArray(list) ? list : [];
+  return llmCatalog;
+}
+
+function providerForId(id) {
+  return (llmCatalog || []).find((p) => p.id === id) || null;
+}
+
+function providerForBase(base) {
+  const target = normBase(base);
+  if (!target) return null;
+  return (llmCatalog || []).find((p) => p.base_url && normBase(p.base_url) === target) || null;
+}
+
+function fillProviderOptions() {
+  const sel = $("#bot-llm-provider");
+  sel.innerHTML = "";
+  for (const p of llmCatalog || []) {
+    const opt = document.createElement("option");
+    opt.value = p.id;
+    opt.textContent = p.name + (p.needs_key ? "" : " · 免 Key");
+    sel.appendChild(opt);
+  }
+  if (!sel.options.length) {
+    const opt = document.createElement("option");
+    opt.value = "";
+    opt.textContent = "（目录读取失败，手填地址和模型）";
+    sel.appendChild(opt);
+  }
+}
+
+function fillModelOptions(provider, preferred) {
+  const sel = $("#bot-llm-model-select");
+  const models = (provider && provider.models) || [];
+  sel.innerHTML = "";
+  if (!models.length) {
+    const opt = document.createElement("option");
+    opt.value = "";
+    opt.textContent = "（没有预设模型，请手填）";
+    sel.appendChild(opt);
+    sel.disabled = true;
+    return;
+  }
+  sel.disabled = false;
+  for (const model of models) {
+    const opt = document.createElement("option");
+    opt.value = model;
+    opt.textContent = model;
+    sel.appendChild(opt);
+  }
+  sel.value = models.includes(preferred) ? preferred : models[0];
+}
+
+function renderProviderHint(provider) {
+  const hint = $("#bot-llm-provider-hint");
+  const keyHint = $("#bot-llm-key-hint");
+  const docsRow = $("#bot-llm-docs-row");
+  const docs = $("#bot-llm-docs");
+
+  if (!provider) {
+    hint.textContent = "供应商目录读不到，直接手填接口地址和模型名也行。";
+    keyHint.textContent = "";
+    docsRow.hidden = true;
+    return;
+  }
+
+  hint.textContent =
+    provider.id === "custom"
+      ? "填你自己的 OpenAI 兼容地址；要不要 Key 看服务端要求。"
+      : provider.needs_key
+        ? "地址和常用模型已自动填好，下面填一次 API Key 就能用。"
+        : "这个供应商不要 Key，直接下一步就行。";
+  keyHint.textContent = provider.needs_key
+    ? "需要 Key；已配过且没换地址时，留空表示不改。"
+    : "这个供应商可以不带 Key，留空即可。";
+
+  if (provider.docs) {
+    docs.href = provider.docs;
+    docs.title = provider.name + " 官网";
+    docs.textContent = "去官网申请 Key / 看文档 →";
+    docsRow.hidden = false;
+  } else {
+    docsRow.hidden = true;
+  }
+}
+
+// preserve=true：回显当前配置；false：用户主动切了供应商，带出该供应商默认值
+function applyProviderSelection(provider, preserve) {
+  const cur = llmStatus || {};
+  const baseInput = $("#bot-llm-base");
+  const modelInput = $("#bot-llm-model");
+
+  if (!provider) {
+    fillModelOptions(null, "");
+    renderProviderHint(null);
+    return;
+  }
+
+  if (preserve && cur.base) {
+    baseInput.value = cur.base;          // 回显用户其实配的地址，连斜杠都别动
+  } else if (provider.base_url) {
+    baseInput.value = provider.base_url; // 选了供应商：自动带出它的地址
+  }
+  // 自定义且不是回显：保留用户已经输入的内容，方便直接改
+
+  const preferred = preserve && cur.model ? cur.model : "";
+  fillModelOptions(provider, preferred);
+
+  const models = provider.models || [];
+  if (preserve && cur.model) {
+    modelInput.value = cur.model;
+  } else if (models.length) {
+    modelInput.value = models[0];
+  } else if (!preserve) {
+    modelInput.value = "";
+  }
+
+  renderProviderHint(provider);
+}
+
+function renderLlmCurrent(status) {
+  const box = $("#bot-llm-current");
+  const summary = $("#bot-model-summary");
+  const llm = (status && status.llm) || null;
+
+  if (!llm || (!llm.base && !llm.model && !llm.key_set)) {
+    box.innerHTML = '<span class="hint">还没配过模型。选个供应商，填上 API Key 就行。</span>';
+    summary.textContent = "模型（还没配，先选供应商）";
+    return;
+  }
+
+  const keyText = llm.key_set
+    ? '已配置 <span class="llm-key">' + escapeHtml(llm.key_hint || "••••") + "</span>"
+    : "未配置";
+
+  box.innerHTML =
+    '<div class="llm-current-head">当前配置<span class="hint">只读</span></div>' +
+    '<dl class="llm-current-grid">' +
+    "<dt>供应商</dt><dd>" + escapeHtml(llm.provider_name || "自定义") + "</dd>" +
+    '<dt>接口地址</dt><dd class="mono">' + escapeHtml(llm.base || "（未填）") + "</dd>" +
+    '<dt>模型</dt><dd class="mono">' + escapeHtml(llm.model || "（未填）") + "</dd>" +
+    "<dt>API Key</dt><dd>" + keyText + "</dd>" +
+    "</dl>" +
+    (status && status.model_ready
+      ? '<p class="hint">AstrBot 侧已就绪，不动模型也能继续用。</p>'
+      : '<p class="hint">AstrBot 侧还没同步，保存一次就会写过去。</p>');
+
+  summary.textContent = "模型（当前：" + (llm.model || "未配置") + "）";
+}
+
+async function refreshLlmSettings(status) {
+  llmStatus = (status && status.llm) || null;
+  await ensureLlmCatalog();
+  fillProviderOptions();
+  renderLlmCurrent(status);
+
+  const llm = llmStatus || {};
+  const matched = providerForBase(llm.base) || providerForId(llm.provider);
+  const providerId = matched ? matched.id : "custom";
+  const sel = $("#bot-llm-provider");
+  sel.value = [...sel.options].some((opt) => opt.value === providerId) ? providerId : "custom";
+  applyProviderSelection(providerForId(sel.value), true);
+
+  $("#bot-llm-key").value = "";
+}
+
+// 保存模型配置（参数不变：base/model/key）。主保存按钮和「保存模型」共用。
+// 返回 {ok, changed, error}：changed=false 表示和当前配置一样，啥都没动。
+async function saveLlmConfig() {
+  const key = $("#bot-llm-key").value.trim();
+  const base = $("#bot-llm-base").value.trim();
+  const model = $("#bot-llm-model").value.trim();
+  const current = llmStatus || {};
+  const provider = providerForId($("#bot-llm-provider").value);
+  const baseChanged = base !== (current.base || "");
+  const modelChanged = model !== (current.model || "");
+
+  if (!key && !baseChanged && !modelChanged) return { ok: true, changed: false };
+  if (!base) return { ok: false, error: "接口地址不能为空" };
+  if (!model) return { ok: false, error: "模型不能为空" };
+  if (!key && baseChanged && !(provider && !provider.needs_key)) {
+    return { ok: false, error: "换了供应商，要重新填一次 API Key" };
+  }
+
+  try {
+    const r = await api("/setup/model", {
+      method: "POST",
+      body: JSON.stringify({ key, base, model }),
+    });
+    if (!r.ok) return { ok: false, error: r.error || "未知错误" };
+    return { ok: true, changed: true, result: r };
+  } catch (e) {
+    return { ok: false, error: String(e) };
+  }
 }
 
 
@@ -1550,6 +1858,37 @@ $("#agent-text").onkeydown = (e) => {
 $("#btn-bot").onclick = openBotDialog;
 $("#bot-close").onclick = () => $("#bot-dlg").close();
 
+// 选供应商：自动带出接口地址 + 常用模型（不动 Key，Key 由用户自己填）
+$("#bot-llm-provider").onchange = () => {
+  applyProviderSelection(providerForId($("#bot-llm-provider").value), false);
+};
+// 从常用模型下拉里挑一个，写进模型输入框（输入框才是真正保存的值，也可以手填）
+$("#bot-llm-model-select").onchange = () => {
+  const model = $("#bot-llm-model-select").value;
+  if (model) $("#bot-llm-model").value = model;
+};
+// 只保存模型：不用重填 QQ 的 Secret，换模型的人只走这里
+$("#bot-llm-save").onclick = async () => {
+  const msg = $("#bot-llm-msg");
+  msg.textContent = "保存中…";
+  const r = await saveLlmConfig();
+  if (!r.ok) {
+    msg.textContent = "失败：" + r.error;
+    return;
+  }
+  if (!r.changed) {
+    msg.textContent = "和当前配置一样，没有改动";
+    return;
+  }
+  msg.textContent = "已保存，AstrBot 已重启";
+  try {
+    await refreshBotStatus();
+  } catch (e) {
+    /* 回显失败不影响保存结果 */
+  }
+  msg.textContent = "已保存，AstrBot 已重启";
+};
+
 $("#rem-save").onclick = async () => {
   const msg = $("#rem-msg");
   msg.textContent = "保存中…";
@@ -1596,20 +1935,12 @@ $("#bot-save").onclick = async () => {
     return;
   }
 
-  const llmKey = $("#bot-llm-key").value.trim();
-  if (llmKey) {
-    const m = await api("/setup/model", {
-      method: "POST",
-      body: JSON.stringify({
-        key: llmKey,
-        base: $("#bot-llm-base").value.trim(),
-        model: $("#bot-llm-model").value.trim(),
-      }),
-    });
-    if (!m.ok) {
-      $("#bot-msg").textContent = "模型配置失败：" + (m.error || "");
-      return;
-    }
+  // 模型区域：选了供应商后 base/model 已自动带出，Key 是唯一要手填的。
+  // 和当前配置一样且没填新 Key = 用户没动模型，跳过，避免把已配好的 Key 冲掉。
+  const modelSave = await saveLlmConfig();
+  if (!modelSave.ok) {
+    $("#bot-msg").textContent = "模型配置失败：" + modelSave.error;
+    return;
   }
 
   $("#bot-msg").textContent = "保存中，AstrBot 正在重启，大约 30 秒…";

@@ -458,6 +458,9 @@ def archive_items(ids: list[int]) -> int:
 def archive_due(grace_days: int = 0) -> int:
     """把过了 ddl 的条目移进存档区。
 
+    作业类看 deadline；课程日历事件没有 deadline，看 extra.cal_end/cal_start，
+    结束（或开始）超过宽限天数就归档，免得历史课程事件一直堆在信息流里。
+
     Args:
         grace_days: 截止后宽限几天再归档，默认 0。
 
@@ -465,6 +468,7 @@ def archive_due(grace_days: int = 0) -> int:
         这次归档了多少条。
     """
     conn = connect()
+    moved = 0
     try:
         cur = conn.execute(
             """UPDATE items
@@ -474,8 +478,35 @@ def archive_due(grace_days: int = 0) -> int:
                  AND datetime(deadline) < datetime('now','localtime',?)""",
             (f"-{int(grace_days)} days",),
         )
+        moved += cur.rowcount
+
+        # 课程日历事件：按结束时间归档（没结束时退回开始时间）
+        cutoff = (datetime.now() - timedelta(days=int(grace_days))).strftime(
+            "%Y-%m-%d %H:%M"
+        )
+        rows = conn.execute(
+            """SELECT id, extra FROM items
+               WHERE archived_at IS NULL
+                 AND (deadline IS NULL OR deadline = '')
+                 AND extra LIKE '%"cal_start"%'"""
+        ).fetchall()
+        expired = []
+        for row in rows:
+            extra = _row_extra(dict(row))
+            when = extra.get("cal_end") or extra.get("cal_start") or ""
+            if isinstance(when, str) and when and when[:16] < cutoff:
+                expired.append(row["id"])
+        if expired:
+            marks = ",".join("?" * len(expired))
+            cur = conn.execute(
+                f"UPDATE items SET archived_at = datetime('now','localtime') "
+                f"WHERE id IN ({marks})",
+                expired,
+            )
+            moved += cur.rowcount
+
         conn.commit()
-        return cur.rowcount
+        return moved
     finally:
         conn.close()
 
@@ -730,8 +761,10 @@ def delete_event(event_id: int) -> bool:
 
 # 只有这几类会铺到日历上。其它带 deadline 的条目（比如第二课堂报名截止）
 # 只留在信息流里，避免日历被塞满。
+# 作业类按 deadline 的日期铺；课程事件没有 deadline，按 extra.cal_start 铺。
 CALENDAR_RULES: tuple[tuple[str, str], ...] = (
     ("canvas", "作业"),
+    ("canvas", "课程事件"),
     ("pe", "实验"),
     ("cnmooc", "作业/测验"),
     ("aihaoke", "作业"),
@@ -770,6 +803,11 @@ def is_scheduled(row: dict) -> bool:
 def items_with_deadline(start: str, end: str) -> list[dict]:
     """把「必须进日历」的条目铺到日历上（只读，不写回 items）。
 
+    两类铺法：
+      * 作业类：按 deadline 的日期铺，start 就是 deadline；
+      * 课程事件类：没有 deadline，按 extra.cal_start 的日期铺，
+        start/end/location/all_day 直接给前端显示上课时间。
+
     每条带 done：已提交（extra.submitted）算办完，前端据此划线，但条目本身
     不消失；过期的只是还没办完，保留 1 天后由 is_scheduled 移出。
     """
@@ -778,20 +816,44 @@ def items_with_deadline(start: str, end: str) -> list[dict]:
         rows = conn.execute(
             """SELECT id, source, board, title, deadline, url, category, extra
                FROM items
-               WHERE deadline IS NOT NULL AND deadline <> ''
-                 AND date(deadline) BETWEEN ? AND ?
-               ORDER BY deadline""",
+               WHERE (deadline IS NOT NULL AND deadline <> ''
+                      AND date(deadline) BETWEEN ? AND ?)
+                  OR ((deadline IS NULL OR deadline = '')
+                      AND extra LIKE '%"cal_start"%')
+               ORDER BY COALESCE(deadline, '')""",
             (start, end),
         ).fetchall()
         out = []
         for r in rows:
             item = dict(r)
             extra = _row_extra(item)
+            item.pop("extra", None)
             if not is_scheduled(item):
                 continue
-            item.pop("extra", None)
+
+            deadline = (item.get("deadline") or "").strip()
+            cal_start = extra.get("cal_start")
+            if deadline:
+                item["start"] = deadline
+                item["end"] = ""
+            elif isinstance(cal_start, str) and cal_start:
+                day = cal_start[:10]
+                if not (start <= day <= end):
+                    continue                 # 不在这次要铺的日期范围里
+                item["start"] = cal_start
+                cal_end = extra.get("cal_end")
+                item["end"] = cal_end if isinstance(cal_end, str) else ""
+            else:
+                continue                     # 没截止时间也没开始时间，日历上没处放
+
+            location = extra.get("location")
+            item["location"] = location if isinstance(location, str) else ""
+            item["all_day"] = bool(extra.get("all_day"))
             item["done"] = bool(extra.get("submitted"))
             out.append(item)
+
+        # 作业按 deadline、课程事件按开始时间，混排后统一按「什么时候」排
+        out.sort(key=lambda x: x.get("start") or "")
         return out
     finally:
         conn.close()

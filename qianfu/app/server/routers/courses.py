@@ -39,16 +39,28 @@ def list_courses():
 
 @router.post("/cnmooc/discover")
 def discover():
-    """自动检测「正在进行」的课程（用真实浏览器，接口拦非浏览器请求）。"""
+    """自动检测「正在进行」的课程（用真实浏览器，接口拦非浏览器请求）。
+
+    discover_courses() 会带 reason 回来（没装 playwright / 找不到浏览器 /
+    没登录 / 登录过期 / 真没课），这里按原因给不同的提示，别再一句
+    「需要 Playwright + 登录态有效」糊弄人。
+    """
     from xinge.sources.cnmooc import discover_courses
 
-    found = discover_courses(SessionStore())
-    if not found:
+    result = discover_courses(SessionStore())
+    if not result.get("ok"):
         return {
             "ok": False,
-            "error": "没能自动检测：需要 Playwright + 本机 Edge/Chrome，且登录态有效",
+            "reason": result.get("reason") or "error",
+            "error": result.get("error") or "没能自动检测课程",
+            "detail": result.get("detail") or "",
             "courses": _courses(),
         }
+
+    found = result.get("courses") or []
+    if not found:
+        # 登录是好的，只是没有「正在进行」的课程 —— 这不是错误
+        return {"ok": True, "courses": [], "count": 0}
 
     existing = {c.get("id"): c for c in _courses()}
     merged = [
@@ -77,13 +89,18 @@ def add_course(body: dict):
 
     name = (body.get("name") or "").strip()
     if not name:
-        # 打开一次作业页，读课程名
+        # 打开一次作业页，读课程名（cnmooc 的会话 cookie 不在全站 jar 里，
+        # 要用 cnmooc 自己那份，否则读到的是登录页）
         try:
-            with SessionStore().client() as client:
+            from xinge.sources.cnmooc import site_client
+
+            with site_client(SessionStore()) as client:
                 resp = client.get(EXAM_URL.format(cid=cid), timeout=25)
+            if "login.mooc" in str(resp.url):
+                raise httpx.HTTPError("登录已过期")
             t = RE_TITLE.search(resp.text)
             name = t.group(1).strip() if t else f"课程 {cid}"
-        except httpx.HTTPError:
+        except (httpx.HTTPError, RuntimeError):
             name = f"课程 {cid}"
 
     courses.append({"id": cid, "name": name, "enabled": True})

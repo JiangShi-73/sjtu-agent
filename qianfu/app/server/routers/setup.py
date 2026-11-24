@@ -10,7 +10,7 @@ import asyncio
 
 from fastapi import APIRouter
 
-from .. import astrbot, config
+from .. import astrbot, config, providers
 from xinge import astrbot_setup
 
 router = APIRouter(tags=["setup"])
@@ -107,12 +107,37 @@ def quick_status():
     }
 
 
+@router.get("/setup/providers")
+def setup_providers():
+    """模型供应商目录：前端下拉选供应商，地址和常用模型自动带出。"""
+    return providers.list_providers()
+
+
+def _llm_summary(cfg: dict) -> dict:
+    """当前模型配置的回显（不返回完整 Key，只给脱敏后的样子）。"""
+    base = str(cfg.get("llm_base") or "").strip()
+    model = str(cfg.get("llm_model") or "").strip()
+    key = str(cfg.get("llm_key") or "").strip()
+    provider = providers.match_base(base)
+    return {
+        "provider": provider["id"] if provider else "custom",
+        "provider_name": provider["name"] if provider else "自定义",
+        "base": base,
+        "model": model,
+        "key_set": bool(key),
+        "key_hint": providers.mask_key(key),
+        "needs_key": provider["needs_key"] if provider else False,
+    }
+
+
 @router.get("/setup/status")
 def setup_status():
     cfg = config.load()
     state = astrbot_setup.status(cfg)
     state["running"] = astrbot.alive()
     state["dashboard"] = f"http://127.0.0.1:{astrbot.DASHBOARD_PORT}"
+    # 信鸽自己存的模型配置（AstrBot 侧的状态在上面那些字段里）
+    state["llm"] = _llm_summary(cfg)
     return state
 
 
@@ -135,20 +160,49 @@ async def setup_qq(body: dict):
 
 @router.post("/setup/model")
 async def setup_model(body: dict):
-    """改模型（一般不用动，默认走 opencode）。"""
-    key = str(body.get("key") or "").strip()
-    if not key:
-        return {"ok": False, "error": "Key 不能为空"}
+    """改模型：前端选了供应商后把 base/model/key 一起送过来。
 
-    config.save(
-        {
-            "llm_key": key,
-            "llm_base": str(body.get("base") or "").strip(),
-            "llm_model": str(body.get("model") or "").strip(),
-        }
-    )
+    参数还是老的 base / model / key 三个，但语义更宽了：
+    - key 留空 = 不改，沿用已存的 Key（换供应商时不能这么干，会报错）；
+    - Ollama、自定义这类不强制要 Key 的供应商，key 可以一直空着；
+    - base / model 留空时沿用当前值，只填一个也能用。
+    """
+    current = config.load()
+    key = str(body.get("key") or "").strip()
+    base = str(body.get("base") or "").strip()
+    model = str(body.get("model") or "").strip()
+
+    cur_base = str(current.get("llm_base") or "").strip()
+    if not base:
+        base = cur_base
+
+    provider = providers.match_base(base)
+    if not model:
+        # 换供应商时用它的默认模型；没换就用现在的，别写成 null
+        if base != cur_base:
+            model = providers.default_model(provider)
+        if not model and base == cur_base:
+            model = str(current.get("llm_model") or "").strip()
+
+    # 目录里的供应商按 needs_key 判断；目录外的自定义地址不拦 Key
+    if not key:
+        stored = str(current.get("llm_key") or "").strip()
+        if providers.needs_key(base) and not (stored and base == cur_base):
+            return {
+                "ok": False,
+                "error": "这个供应商需要填 API Key（Key 留空只对 Ollama/自定义生效）",
+            }
+        key = stored
+
+    if not base:
+        return {"ok": False, "error": "接口地址不能为空"}
+    if not model:
+        return {"ok": False, "error": "模型不能为空"}
+
+    config.save({"llm_key": key, "llm_base": base, "llm_model": model})
     cfg = config.load()
     result = await asyncio.to_thread(astrbot.apply_config, cfg)
+    result.setdefault("provider", provider["id"] if provider else "custom")
     return result
 
 

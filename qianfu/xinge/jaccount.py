@@ -50,8 +50,11 @@ SITES: dict[str, dict] = {
     "cnmooc": {
         "name": "好大学在线",
         "url": "https://cnmooc.sjtu.cn/",
-        "check": ["moocsk", "moocvk"],
+        # moocsk 只有 SSO 成功之后才会下发；moocvk/keepalive 匿名访问就有，
+        # 不能拿来当登录标志（老版本就是因此虚假报「已登录」）
+        "check": ["moocsk"],
         "method": "sso",
+        "note": "要真浏览器走 /oauth/jacAuth.mooc 的 SSO，见 sources/cnmooc.py",
     },
     "pe": {
         "name": "体育",
@@ -84,18 +87,41 @@ class JAccountError(RuntimeError):
 
 def cookies() -> dict[str, str]:
     """从 Canvas 扫码登录留下的会话里取 jAccount 的 cookie。"""
+    jar: dict[str, str] = {}
+    for record in cookie_records():
+        jar[record["name"]] = record["value"]
+    return jar
+
+
+def cookie_records() -> list[dict]:
+    """jAccount cookie 明细（name/value/domain/path）。
+
+    jAccount 会同时下发两个同名 JSESSIONID（/oauth2 与 /jaccount 各一个），
+    只返回 name->value 的 dict 会把其中一个覆盖掉；交给 Playwright 时
+    必须带 path 才能两个都注入。
+    """
     if not SESSION_PATH.exists():
-        return {}
+        return []
     try:
         records = json.loads(SESSION_PATH.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
-        return {}
+        return []
 
-    jar: dict[str, str] = {}
+    out: list[dict] = []
     for record in records:
-        if isinstance(record, dict) and record.get("domain") == "jaccount.sjtu.edu.cn":
-            jar[record.get("name")] = record.get("value")
-    return jar
+        if not isinstance(record, dict):
+            continue
+        if record.get("domain") != "jaccount.sjtu.edu.cn" or not record.get("name"):
+            continue
+        out.append(
+            {
+                "name": record["name"],
+                "value": record.get("value") or "",
+                "domain": "jaccount.sjtu.edu.cn",
+                "path": record.get("path") or "/",
+            }
+        )
+    return out
 
 
 def has_session() -> bool:
@@ -178,6 +204,11 @@ def login(site: str) -> dict:
     if not jar.get("JAAuthCookie"):
         return {"ok": False, "error": "还没有 jAccount 登录态，先在信鸽里扫码登录一次"}
 
+    # cnmooc 的 SSO 必须由真浏览器完成：httpx 带 jAccount cookie 访问它
+    # 只会被丢到 /home/login.mooc，拿到的是一组未认证的匿名 cookie。
+    if site == "cnmooc":
+        return _login_cnmooc()
+
     target = SITES[site]["url"]
     with httpx.Client(headers={"User-Agent": UA}, timeout=30, follow_redirects=True) as client:
         for name, value in jar.items():
@@ -207,6 +238,26 @@ def login(site: str) -> dict:
     return {"ok": True, "site": site, "cookies": len(site_cookies)}
 
 
+def _login_cnmooc() -> dict:
+    """cnmooc 专用登录：Playwright 注入 jAccount cookie 走 SSO，落盘站点 cookie。"""
+    from .sources import cnmooc
+
+    result = cnmooc.browser_login()
+    if result.get("ok"):
+        return {
+            "ok": True,
+            "site": "cnmooc",
+            "cookies": int(result.get("cookies") or 0),
+        }
+    return {
+        "ok": False,
+        "site": "cnmooc",
+        "reason": result.get("reason") or "error",
+        "error": result.get("error") or "好大学在线登录失败",
+        "detail": result.get("detail") or "",
+    }
+
+
 def client(site: str) -> httpx.Client:
     """拿到一个已经登录好的 httpx 客户端。"""
     jar = load_site(site)
@@ -231,6 +282,15 @@ def _site_logged_in(site: str) -> bool:
             return bool(get_token(SessionStore(), refresh=False))
         except Exception:                         # noqa: BLE001
             return False
+    # cnmooc 的会话可能存在 cnmooc.json，也可能只在全站 jar 里
+    if site == "cnmooc":
+        try:
+            from .auth import SessionStore
+            from .sources import cnmooc
+
+            return cnmooc.has_login_state(SessionStore())
+        except Exception:                         # noqa: BLE001
+            return _ok(site, load_site(site))
     return _ok(site, load_site(site))
 
 
