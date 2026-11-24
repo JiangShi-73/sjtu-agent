@@ -20,9 +20,24 @@ RE_CN_DATE = re.compile(r"(\d{1,2})月(\d{1,2})[日号]")
 RE_WEEK = re.compile(r"(下下|下|本|这)?(?:周|星期|礼拜)([一二三四五六日天])")
 RE_DAYWORD = re.compile(r"(大后天|后天|明天|明日|今天|今日)")
 RE_PERIOD = re.compile(r"(凌晨|早上|早晨|上午|中午|下午|傍晚|晚上|夜里|晚)")
-RE_TIME = re.compile(r"(\d{1,2})(?:[:：点时])(\d{1,2})?分?")
-RE_RANGE = re.compile(r"(\d{1,2})(?:[:：点时])(\d{1,2})?\s*(?:到|至|-|~|—)\s*(\d{1,2})(?:[:：点时])(\d{1,2})?")
+# 分钟部分除了阿拉伯数字，还要认「半 / 一刻 / 三刻 / 整」
+# 否则 "12点半" 会解析成 12:00，而且「半」会残留到标题里
+_M = r"(半|一刻|三刻|整|\d{1,2})?"
+RE_TIME = re.compile(r"(\d{1,2})(?:[:：点时])\s*" + _M + r"分?")
+RE_RANGE = re.compile(
+    r"(\d{1,2})(?:[:：点时])\s*" + _M + r"\s*(?:到|至|-|~|—)\s*(\d{1,2})(?:[:：点时])\s*" + _M
+)
 RE_LOCATION = re.compile(r"(?:在|地点[:：]?)([^\s，,。；;]{1,20})")
+
+# 不带「在」的地点：东上院308 / 东中院2-106 / 3号楼 / 五餐 / 图书馆 / 308教室
+RE_ROOM = re.compile(
+    r"([东南西北中][上下中]?院\s*\d[\w\-]*"
+    r"|[一二三四五六七八九十\d]+号楼"
+    r"|[一二三四五六七八九十\d]+餐"
+    r"|(?:包玉刚|主)?图书馆"
+    r"|[A-Za-z]?\d{2,4}\s*(?:教室|室))"
+)
+MINUTE_WORD = {"半": 30, "一刻": 15, "三刻": 45, "整": 0}
 
 PERIOD_OFFSET = {"凌晨": 0, "早上": 0, "早晨": 0, "上午": 0, "中午": 12,
                  "下午": 12, "傍晚": 12, "晚上": 12, "夜里": 12, "晚": 12}
@@ -76,6 +91,18 @@ def _resolve_date(text: str, today: date) -> tuple[date | None, str]:
     return None, ""
 
 
+def _minutes(value: str | None) -> int:
+    """把「半 / 一刻 / 三刻 / 25」换成分钟数。"""
+    if not value:
+        return 0
+    if value in MINUTE_WORD:
+        return MINUTE_WORD[value]
+    try:
+        return int(value)
+    except ValueError:
+        return 0
+
+
 def _resolve_time(text: str) -> tuple[str, str, list[str]]:
     """返回 (开始, 结束, 被消费的片段列表)。
 
@@ -89,14 +116,14 @@ def _resolve_time(text: str) -> tuple[str, str, list[str]]:
     m = RE_RANGE.search(text)
     if m:
         h1, m1, h2, m2 = m.groups()
-        start = f"{int(h1):02d}:{int(m1 or 0):02d}"
-        end = f"{int(h2):02d}:{int(m2 or 0):02d}"
+        start = f"{int(h1):02d}:{_minutes(m1):02d}"
+        end = f"{int(h2):02d}:{_minutes(m2):02d}"
         used.append(m.group(0))
         head = m.start()
     else:
         m = RE_TIME.search(text)
         if m:
-            start = f"{int(m.group(1)):02d}:{int(m.group(2) or 0):02d}"
+            start = f"{int(m.group(1)):02d}:{_minutes(m.group(2)):02d}"
             used.append(m.group(0))
             head = m.start()
 
@@ -154,6 +181,12 @@ def parse(text: str, now: datetime | None = None) -> dict:
         # 只从标题里删掉「在 + 地点」，不要把后面的动词一起删了
         keep = len(m.group(0)) - len(raw_loc) + len(location)
         loc_drop = m.group(0)[:keep]
+    else:
+        # 没说「在」，也试试认楼/教室号：东上院308、3号楼、五餐、图书馆
+        rm = RE_ROOM.search(text)
+        if rm:
+            location = rm.group(1).strip()
+            loc_drop = rm.group(0)
 
     title = text
     for frag in filter(None, [date_frag, *time_frags, loc_drop]):

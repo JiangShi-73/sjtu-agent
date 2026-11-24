@@ -352,6 +352,12 @@ class XingePlugin(Star):
         if not text or text.startswith("/"):
             return
 
+        # 群聊里必须 @ 机器人或者带唤醒词才响应；没叫我们就保持沉默，
+        # 别把整个群的聊天都当日程（也保持和原来一样：群消息不触发默认 LLM）
+        if not event.is_at_or_wake_command:
+            event.stop_event()
+            return
+
         # 上一句还差日期/标题没建完时，这一句可能是在补信息
         pending = _nl_pending(event)
         merged = False
@@ -371,11 +377,6 @@ class XingePlugin(Star):
                 _nl_forget(event)                      # 用户换话题了，别一直挂着
 
         if not merged and not _nl_looks_like_schedule(text):
-            return
-
-        # 群聊里必须 @ 机器人或者带唤醒词才响应，不然会把群聊都当日程
-        if not event.is_at_or_wake_command:
-            event.stop_event()
             return
 
         try:
