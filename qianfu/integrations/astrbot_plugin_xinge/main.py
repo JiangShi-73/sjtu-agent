@@ -55,6 +55,9 @@ from astrbot.api.event import AstrMessageEvent, MessageChain, filter
 from astrbot.api.star import Context, Star
 
 BASE = "http://127.0.0.1:8722/api/v1"
+# 后端给的图片地址是相对路径（/api/v1/bot/...），拼绝对地址得用服务根
+API_PREFIX = "/api/v1"
+SERVER_ROOT = BASE[: -len(API_PREFIX)] if BASE.endswith(API_PREFIX) else BASE
 
 # ---------- 主动提醒推送 ----------
 #
@@ -195,6 +198,27 @@ def _backlog_text(items: list) -> str:
         else:
             lines.append(f"· {fire.month}月{fire.day}日 {fire.strftime('%H:%M')} {title}")
     return "\n".join(lines)
+
+
+def _image_abs_url(raw) -> str:
+    """提醒里的 image_url（可能是空串）→ 能直接发给平台的绝对地址。"""
+    url = str(raw or "").strip()
+    if not url:
+        return ""
+    if url.startswith(("http://", "https://")):
+        return url                             # 后端哪天直接给绝对地址也认
+    if url.startswith(API_PREFIX):
+        return SERVER_ROOT + url               # /api/v1/... → http://127.0.0.1:8722/api/v1/...
+    return BASE + ("" if url.startswith("/") else "/") + url
+
+
+def _reminder_image(items: list) -> str:
+    """一组提醒要跟着发的图：取第一条非空 image_url（合并补推只发一张）。"""
+    for item, _fire in items:
+        url = _image_abs_url((item or {}).get("image_url"))
+        if url:
+            return url
+    return ""
 
 
 def _sid(event: AstrMessageEvent) -> str:
@@ -758,6 +782,7 @@ NL_QUERY_USAGE = (
     "我是信鸽，可以直接问我：\n"
     "· 最近有什么作业（DDL）\n"
     "· 这周有什么活动\n"
+    "· 有哪些有劳动学时的活动\n"
     "· 有新的邮件吗\n"
     "· 明天有什么安排\n"
     "· 今天有课吗\n"
@@ -766,7 +791,14 @@ NL_QUERY_USAGE = (
 
 # 关键词 → 意图，顺序就是优先级：越具体的越靠前。
 RE_NLQ_DEADLINE = re.compile(r"作业|ddl|deadline|截止|要交|该交|快交|due", re.I)
-RE_NLQ_ACTIVITY = re.compile(r"活动|报名|二课|第二课堂|讲座|劳动学时")
+RE_NLQ_ACTIVITY = re.compile(
+    r"活动|报名|二课|第二课堂|讲座|劳动学时|新时代|讲座课|素拓"
+)
+# 活动属性关键词：劳动学时 / 新时代讲座；素拓平台没有这个属性，查到也直接回绝
+RE_NLQ_LABOR = re.compile(r"劳动学时|劳动教育")
+RE_NLQ_NEWERA = re.compile(r"新时代|讲座课")
+RE_NLQ_SUKUO = re.compile(r"素拓|素质拓展")
+NLQ_ACTIVITY_SUKUO = "活动平台只提供劳动学时和新时代讲座两个属性，没有素拓分数"
 RE_NLQ_MAIL = re.compile(r"邮件|邮箱|收件箱|信箱|来信")
 RE_NLQ_COURSE = re.compile(
     r"课表|课程表|课程|上课|有课|几节课|几门课|什么课|哪些课|哪门课|第.{1,3}节|教室"
@@ -1024,6 +1056,101 @@ def _nlq_activity_text(items: list) -> str:
     return "\n".join(lines)
 
 
+def _nlq_activity_filter(text: str) -> str:
+    """活动查询看哪类属性：labor / newera / all；素拓平台没有，返回 sukuo。
+
+    Args:
+        text: 用户原话。
+
+    Returns:
+        labor / newera / all / sukuo 之一。
+    """
+    if RE_NLQ_SUKUO.search(text):
+        return "sukuo"
+    if RE_NLQ_LABOR.search(text):
+        return "labor"
+    if RE_NLQ_NEWERA.search(text):
+        return "newera"
+    return "all"
+
+
+def _nlq_activity_days(text: str) -> tuple[int, str]:
+    """活动往未来看几天。
+
+    Args:
+        text: 用户原话。
+
+    Returns:
+        (天数, 人话标签)；没提时间就按后端默认 14 天。
+    """
+    if RE_NLQ_TIME.search(text) or RE_NLQ_WEEKDAY.search(text):
+        _start, end, label = _nlq_range(text)
+        return max(1, min((end - date.today()).days + 1, 30)), label
+    return 14, "14 天内"
+
+
+def _nlq_activity_attrs(item: dict) -> list[str]:
+    """一条活动能拿什么：劳动学时 2h / 新时代讲座。"""
+    parts: list[str] = []
+    if item.get("labor_counted"):
+        try:
+            hours = float(item.get("labor_hours") or 0)
+        except (TypeError, ValueError):
+            hours = 0.0
+        parts.append(f"劳动学时 {hours:g}h" if hours else "劳动学时")
+    if item.get("new_era"):
+        parts.append("新时代讲座")
+    return parts
+
+
+def _nlq_activity_filtered_text(rows: list, kind: str, label: str) -> str:
+    """按属性筛出来的活动 → 一段话（带序号，方便 /活动图 <序号> 看详情）。
+
+    Args:
+        rows: /bot/activities 返回的活动列表。
+        kind: labor / newera / all。
+        label: 时间范围的人话标签，例如「14 天内」。
+
+    Returns:
+        可以直接发给用户的文本。
+    """
+    if not rows:
+        if kind == "labor":
+            return f"{label}没有带劳动学时的活动"
+        if kind == "newera":
+            return f"{label}没有新时代讲座"
+        return f"{label}没有活动"
+
+    if kind == "labor":
+        head = f"有劳动学时的活动 {len(rows)} 个（{label}）"
+    elif kind == "newera":
+        head = f"有新时代讲座的活动 {len(rows)} 个（{label}）"
+    else:
+        head = f"活动 {len(rows)} 个（{label}）"
+
+    lines = [head]
+    for i, item in enumerate(rows[:10], 1):
+        lines.append(f'{i}. {_nlq_short(item.get("title"), 40)}')
+        when = str(item.get("start") or "")[:16].replace("T", " ")
+        if len(when) >= 16:
+            when = when[5:16]                       # 2026-12-06 08:00 → 12-06 08:00
+        place = _nlq_short(item.get("place"), 14)
+        attrs = " · ".join(_nlq_activity_attrs(item))
+        tail = " · ".join(x for x in (when, place, attrs) if x)
+        if tail:
+            lines.append(f"   {tail}")
+        signup_end = str(item.get("signup_end") or "")[:16].replace("T", " ")
+        if signup_end:
+            if len(signup_end) >= 16:
+                signup_end = signup_end[5:]         # 2026-12-05 12:00 → 12-05 12:00
+            lines.append(f"   报名截止 {signup_end}")
+    if len(rows) > 10:
+        lines.append(f"…还有 {len(rows) - 10} 个")
+    lines.append("")
+    lines.append(f"共 {len(rows)} 个，发 /活动图 <序号> 看详情")
+    return "\n".join(lines)
+
+
 def _nlq_mail_text(data: dict) -> str:
     """收件箱 → 一段话。
 
@@ -1174,6 +1301,7 @@ class XingePlugin(Star):
         # 已推但还没 ack 的提醒 id -> 推送时间，防 ack 失败时每分钟重复推
         self._recent_pushed: dict[int, float] = {}
         self._push_fail_streak = 0
+        self._image_fail_streak = 0
         self._loop_fail_streak = 0
         self._target_error_logged = False
         self._settings_error_logged = False
@@ -1278,7 +1406,8 @@ class XingePlugin(Star):
             text = _backlog_text(fresh)             # 24h 内过期的多条合并补推
         ids = [item["id"] for item, _ in fresh]
 
-        if not await self._push(umo, text, ids):
+        image = _reminder_image(fresh)              # 合并补推只取第一张非空图
+        if not await self._push(umo, text, ids, image):
             return                                  # 发不出去：不 ack，下轮重试
         self._hour_count += 1
         for rid in ids:
@@ -1344,8 +1473,9 @@ class XingePlugin(Star):
             return ""
         return str((data or {}).get("umo") or "").strip()
 
-    async def _push(self, umo: str, text: str, ids: list[int]) -> bool:
-        """主动私聊推一条。失败不抛，交给下一轮重试。"""
+    async def _push(self, umo: str, text: str, ids: list[int],
+                    image: str = "") -> bool:
+        """主动私聊推一条：先文字，带了图再补一张。失败不抛，交给下一轮重试。"""
         try:
             sent = await self.context.send_message(umo, MessageChain().message(text))
         except Exception as exc:                    # noqa: BLE001
@@ -1364,6 +1494,31 @@ class XingePlugin(Star):
             return False
         self._push_fail_streak = 0
         logger.info(f"已推送提醒 {ids}：{text.splitlines()[0]}")
+        if image:
+            # 文字已经发出去了：图单独发一张，失败只记日志，不影响 ack
+            await self._push_image(umo, image, ids)
+        return True
+
+    async def _push_image(self, umo: str, url: str, ids: list[int]) -> bool:
+        """补发提醒附图。失败不算推送失败（文字已送达），只安静记日志。"""
+        try:
+            sent = await self.context.send_message(umo, MessageChain().url_image(url))
+        except Exception as exc:                    # noqa: BLE001
+            self._image_fail_streak += 1
+            if self._image_fail_streak == 1 or self._image_fail_streak % 30 == 0:
+                logger.warning(
+                    f"提醒附图发送失败（连续 {self._image_fail_streak} 次）：{exc}"
+                )
+            return False
+        if not sent:
+            self._image_fail_streak += 1
+            if self._image_fail_streak == 1 or self._image_fail_streak % 30 == 0:
+                logger.warning(
+                    f"提醒附图发送失败：没找到匹配平台（连续 {self._image_fail_streak} 次）"
+                )
+            return False
+        self._image_fail_streak = 0
+        logger.info(f"已推送提醒附图 {ids}：{url}")
         return True
 
     async def _ack(self, ids: list[int], mode: str | None = None) -> bool:
@@ -1684,11 +1839,24 @@ class XingePlugin(Star):
             return _nlq_deadline_text(items, label)
 
         if intent == "activity":
-            data = await _json("/bot/second-classroom", limit=8)
-            items = data.get("items") or []
-            if items:
-                _remember(event, items, "活动")
-            return _nlq_activity_text(items)
+            kind = _nlq_activity_filter(text)
+            if kind == "sukuo":
+                return NLQ_ACTIVITY_SUKUO          # 平台没有素拓分，别白跑一趟接口
+            days, range_label = _nlq_activity_days(text)
+            try:
+                data = await _json("/bot/activities", filter=kind, days=days, limit=20)
+            except Exception as exc:              # noqa: BLE001
+                # 后端还是旧版（没有属性筛选接口）：退回原来的第二课堂列表
+                logger.info(f"自然语言查活动（属性筛选）失败，退回第二课堂列表：{exc}")
+                data = await _json("/bot/second-classroom", limit=8)
+                items = data.get("items") or []
+                if items:
+                    _remember(event, items, "活动")
+                return _nlq_activity_text(items)
+            rows = data.get("activities") or data.get("items") or []
+            if rows:
+                _remember(event, rows, "活动")
+            return _nlq_activity_filtered_text(rows, kind, range_label)
 
         if intent == "mail":
             try:
@@ -2040,13 +2208,18 @@ class XingePlugin(Star):
             yield event.plain_result("用法：先 /活动 看列表，再 /活动图 2")
             return
 
-        try:
-            data = await _json("/bot/second-classroom", limit=60)
-        except Exception as exc:                  # noqa: BLE001
-            yield event.plain_result(f"查询失败：{exc}")
-            return
-
-        items = data.get("items") or []
+        # 自然语言查询刚列过活动时，/活动图 <序号> 按那份列表算，别另拉一份对不上
+        recalled = _recall(event)
+        items = []
+        if recalled and recalled.get("kind") == "活动":
+            items = list(recalled.get("items") or [])
+        if not items:
+            try:
+                data = await _json("/bot/second-classroom", limit=60)
+            except Exception as exc:              # noqa: BLE001
+                yield event.plain_result(f"查询失败：{exc}")
+                return
+            items = data.get("items") or []
         if not items:
             yield event.plain_result("第二课堂暂无活动")
             return
