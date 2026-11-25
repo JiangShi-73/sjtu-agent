@@ -15,11 +15,20 @@
 from __future__ import annotations
 
 # id 是稳定标识：前端下拉、配置回显、日志里都用它，别随便改。
-# 顺序 = 前端下拉里的顺序，内置的 opencode 排第一（也是历史默认）。
+# 顺序 = 前端下拉里的顺序。默认走校内的「致远一号」：数据不出境，
+# 也符合赛事对校内资源的要求；opencode 保留为可选（显式选择才用）。
 PROVIDERS: list[dict] = [
     {
+        "id": "sjtu",
+        "name": "致远一号（校内，推荐）",
+        "base_url": "https://models.sjtu.edu.cn/api/v1",
+        "models": ["deepseek-chat", "qwen", "deepseek-reasoner"],
+        "needs_key": True,
+        "docs": "https://models.sjtu.edu.cn",
+    },
+    {
         "id": "opencode",
-        "name": "OpenCode（内置，默认）",
+        "name": "OpenCode（内置，可选）",
         "base_url": "https://opencode.ai/inference/go/v1",
         "models": [
             "deepseek-v4.1-flash",

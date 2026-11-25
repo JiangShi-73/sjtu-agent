@@ -118,25 +118,45 @@ def set_reminder_target(body: dict):
 
 @router.post("/bot/reminders/bind")
 def bind_reminder_target(body: dict):
-    """插件收到私聊时上报：维护「最近联系人」，并在没手动设过时自动绑定。
-    QQ 官方机器人拿不到 QQ 号，只有 openid；App 里从联系人列表点选即可。"""
+    """插件收到私聊时上报：只在「还没有推送对象」时自动绑定并记下这个联系人。
+
+    隐私最小化：之后别人的私聊一律不落库（openid / 昵称不再永久保存），
+    也不会改掉已经设好的推送对象。QQ 官方机器人拿不到 QQ 号，只有 openid。
+    """
     umo = str(body.get("umo") or "").strip()
     sender_id = str(body.get("sender_id") or "").strip()
     nickname = str(body.get("nickname") or "").strip()
     openid = str(body.get("openid") or "").strip() or sender_id
     if not openid and ":" in umo:
         openid = umo.rsplit(":", 1)[-1]
-    contact = db.upsert_bot_contact(openid, nickname) if openid else {}
+
+    # 已经有推送对象：这次私聊不记录任何人，直接返回现状
+    if reminders.target_bound():
+        return {
+            "ok": True,
+            "accepted": False,
+            "reason": "已有推送对象，不再记录新的联系人",
+            "target": reminders.get_target(),
+        }
+
     result = reminders.bind_target(umo, sender_id=sender_id, nickname=nickname)
-    if contact:
-        result["contact"] = contact
+    if openid and result.get("accepted"):
+        contact = db.upsert_bot_contact(openid, nickname)
+        if contact:
+            result["contact"] = contact
     return result
 
 
 @router.get("/bot/contacts")
 def bot_contacts(limit: int = 50):
-    """最近和机器人私聊过的人：App 的「推送对象」下拉列表读这里。"""
+    """最近和机器人私聊过的人：App 的「推送对象」下拉列表读这里（只留 30 天）。"""
     return db.list_bot_contacts(max(1, min(limit, 200)))
+
+
+@router.delete("/bot/contacts/{openid}")
+def remove_bot_contact(openid: str):
+    """删掉某个人被记下的 openid / 昵称（隐私最小化：可单条删除）。"""
+    return {"ok": True, "deleted": db.delete_bot_contact(openid)}
 
 
 # ---------------- 提醒参数（App 可改） ----------------

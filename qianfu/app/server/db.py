@@ -671,13 +671,31 @@ def source_states() -> list[dict]:
         conn.close()
 
 
+# 联系人只保留最近 30 天：私聊机器人的人不该被永久记下 openid / 昵称。
+BOT_CONTACT_TTL_DAYS = 30
+
+
+def _prune_bot_contacts(conn) -> None:
+    """清掉超过 TTL 的联系人（惰性清理，写入/读取时顺手跑）。"""
+    conn.execute(
+        "DELETE FROM bot_contacts WHERE last_seen IS NOT NULL "
+        "AND datetime(last_seen) < datetime('now','localtime',?)",
+        (f"-{BOT_CONTACT_TTL_DAYS} days",),
+    )
+
+
 def upsert_bot_contact(openid: str, nickname: str = "") -> dict:
-    """记下和机器人私聊过的人（openid + 昵称），App 里下拉选推送对象。"""
+    """记下和机器人私聊过的人（openid + 昵称），App 里下拉选推送对象。
+
+    只应该在「用户主动把自己设成推送对象」那一次调用（见 bot 路由），
+    平时别人的私聊不落库；这里另外负责顺手清理过期的记录。
+    """
     openid = (openid or "").strip()
     if not openid:
         return {}
     conn = connect()
     try:
+        _prune_bot_contacts(conn)
         conn.execute(
             """INSERT INTO bot_contacts(openid, nickname, last_seen)
                VALUES (?,?,?)
@@ -696,15 +714,31 @@ def upsert_bot_contact(openid: str, nickname: str = "") -> dict:
 
 
 def list_bot_contacts(limit: int = 50) -> list[dict]:
-    """最近和机器人私聊过的联系人，最近说话的在前面。"""
+    """最近和机器人私聊过的联系人，最近说话的在前面（过期记录先清掉）。"""
     conn = connect()
     try:
+        _prune_bot_contacts(conn)
+        conn.commit()
         rows = conn.execute(
             """SELECT openid, nickname, last_seen FROM bot_contacts
                ORDER BY COALESCE(last_seen, '') DESC, openid DESC LIMIT ?""",
             (max(1, min(int(limit), 200)),),
         ).fetchall()
         return [dict(r) for r in rows]
+    finally:
+        conn.close()
+
+
+def delete_bot_contact(openid: str) -> bool:
+    """删掉某个人被记下的 openid / 昵称，返回是否真的删了一行。"""
+    openid = (openid or "").strip()
+    if not openid:
+        return False
+    conn = connect()
+    try:
+        cur = conn.execute("DELETE FROM bot_contacts WHERE openid=?", (openid,))
+        conn.commit()
+        return cur.rowcount > 0
     finally:
         conn.close()
 

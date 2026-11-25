@@ -30,6 +30,8 @@
           <button id="btn-feeds">订阅</button><button id="btn-bot">机器人</button>
           <button id="btn-api">接口</button><button id="btn-diag">诊断</button>
           <button id="btn-clean">清理</button><button id="btn-logout">退出登录</button>
+          <button id="btn-export" style="grid-column:1/-1">导出我的数据</button>
+          <button id="btn-delete-data" class="danger" style="grid-column:1/-1">删除全部数据</button>
         </div>
         <button id="btn-login" hidden>扫码登录</button>
         <div id="status" class="status" role="status"></div>
@@ -99,6 +101,12 @@
         <div id="login-body"><p>用交大 jAccount 登录，在一个地方查看课程、校园通知和日程。</p><button id="login-go" class="primary login-btn">用 jAccount 登录 <span aria-hidden="true">↗</span></button></div>
         <div id="login-qr-box" hidden><p>用「交我办」或微信扫一扫。</p><img id="login-qr-img" alt="jAccount 登录二维码" /><p id="login-qr-tip" role="status"></p><button id="login-cancel">取消</button></div>
         <div class="access-foot">登录后可在「设置」中退出账号。</div>
+        <p class="hint privacy-note">
+          数据只存本机 ~/.xinge，不上传。<br />
+          用你自己的 jAccount 登录，只读取你本人可见的内容。<br />
+          邮件只取发件人和主题，不读取正文。<br />
+          可随时在「设置」里导出或删除全部数据。
+        </p>
       </div>
     </div>
   </section>
@@ -345,6 +353,23 @@
     <h2>诊断</h2>
     <div id="diag-body"></div>
     <form method="dialog"><button>关闭</button></form>
+  </dialog>
+
+  <dialog id="data-dlg">
+    <h2>删除全部数据</h2>
+    <p class="hint">
+      会删掉本机保存的全部内容：配置、各站点登录 cookie、数据库（板块 / 日程 / 提醒）。
+      删除后无法恢复，需要重新登录、重新抓取。
+    </p>
+    <label class="field">
+      <span>输入 DELETE 确认</span>
+      <input id="data-confirm" placeholder="DELETE" autocomplete="off" spellcheck="false" />
+    </label>
+    <div class="dlg-actions">
+      <button id="data-cancel">取消</button>
+      <button id="data-delete" class="danger" disabled>永久删除</button>
+    </div>
+    <div id="data-msg" class="hint"></div>
   </dialog>
 
   <script src="app.js" type="module"></script>

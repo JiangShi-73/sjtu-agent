@@ -2069,6 +2069,75 @@ $("#btn-clean").onclick = async () => {
   }
 };
 
+/* ---------------- 我的数据（导出 / 全部删除） ---------------- */
+
+async function exportMyData() {
+  const btn = $("#btn-export");
+  btn.disabled = true;
+  $("#status").textContent = "正在打包我的数据…";
+  try {
+    const res = await fetch(API + "/data/export");
+    if (!res.ok) throw new Error(res.status + " " + res.statusText);
+    const blob = await res.blob();
+    const stamp = todayStr();
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = "xinge-data-" + stamp + ".zip";
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    $("#status").textContent = "已导出我的数据（zip）";
+  } catch (e) {
+    $("#status").textContent = "导出失败：" + e.message;
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+function openDataDelete() {
+  $("#data-confirm").value = "";
+  $("#data-delete").disabled = true;
+  $("#data-msg").textContent = "";
+  $("#data-dlg").showModal();
+}
+
+async function deleteAllData() {
+  const confirmText = $("#data-confirm").value.trim();
+  if (confirmText !== "DELETE") {
+    $("#data-msg").textContent = "要输入 DELETE 才能删。";
+    return;
+  }
+  const btn = $("#data-delete");
+  btn.disabled = true;
+  $("#data-msg").textContent = "正在删除…";
+  try {
+    const res = await fetch(API + "/data/delete", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ confirm: confirmText }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || !data.ok) throw new Error(data.error || (res.status + " " + res.statusText));
+    const removed = (data.removed || []).length;
+    $("#data-msg").textContent = "已删除 " + removed + " 个文件，正在回到登录页…";
+    alert("已删除本机保存的全部数据（" + removed + " 个文件）。");
+    location.reload();
+  } catch (e) {
+    $("#data-msg").textContent = "删除失败：" + e.message;
+    btn.disabled = false;
+  }
+}
+
+$("#btn-export").onclick = exportMyData;
+$("#btn-delete-data").onclick = openDataDelete;
+$("#data-confirm").oninput = () => {
+  $("#data-delete").disabled = $("#data-confirm").value.trim() !== "DELETE";
+};
+$("#data-cancel").onclick = () => $("#data-dlg").close();
+$("#data-delete").onclick = deleteAllData;
+
 $("#cal-close").onclick = () => switchView("feed");
 
 $("#rail-prev").onclick = () => { state.month = new Date(state.month.getFullYear(), state.month.getMonth() - 1, 1); loadCalendar(); };

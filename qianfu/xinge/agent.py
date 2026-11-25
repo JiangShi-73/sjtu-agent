@@ -18,8 +18,9 @@ import httpx
 
 API = os.environ.get("XINGE_API", "http://127.0.0.1:8722/api/v1")
 
-DEFAULT_BASE = "https://opencode.ai/inference/go/v1"
-DEFAULT_MODEL = "deepseek-v4.1-flash"
+# 默认走校内的「致远一号」：数据不出境（用户配过就用用户配的）
+DEFAULT_BASE = "https://models.sjtu.edu.cn/api/v1"
+DEFAULT_MODEL = "deepseek-chat"
 
 MAX_ROUNDS = 6
 
@@ -612,9 +613,13 @@ async def chat(
 
     async with httpx.AsyncClient(timeout=180) as client:
         for _ in range(MAX_ROUNDS):
+            headers = {"Authorization": f"Bearer {key}"}
+            # opencode 网关的会话标记；对校内/其它 OpenAI 兼容服务没有意义，别乱发
+            if "opencode.ai" in base:
+                headers["x-opencode-session"] = "xinge-agent"
             resp = await client.post(
                 f"{base}/chat/completions",
-                headers={"Authorization": f"Bearer {key}", "x-opencode-session": "xinge-agent"},
+                headers=headers,
                 json={"model": model, "messages": convo, "tools": active, "temperature": 0.3},
             )
             resp.raise_for_status()

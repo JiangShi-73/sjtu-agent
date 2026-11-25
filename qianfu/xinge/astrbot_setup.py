@@ -154,9 +154,10 @@ def sync(cfg: dict) -> dict:
     changed: list[str] = []
 
     # ---- 模型 ----
-    base = (cfg.get("llm_base") or "https://opencode.ai/inference/go/v1").strip()
+    # 默认走校内的「致远一号」；用户自己在界面里选过什么，就按用户存的来。
+    base = (cfg.get("llm_base") or "https://models.sjtu.edu.cn/api/v1").strip()
     key = (cfg.get("llm_key") or "").strip()
-    model = (cfg.get("llm_model") or "deepseek-v4.1-flash").strip()
+    model = (cfg.get("llm_model") or "deepseek-chat").strip()
 
     if key:
         sources = [s for s in (data.get("provider_sources") or []) if s.get("id") != SOURCE_ID]
@@ -173,7 +174,12 @@ def sync(cfg: dict) -> dict:
                 "api_base": base,
                 "timeout": 120,
                 "proxy": "",
-                "custom_headers": {"x-opencode-session": "astrbot"},
+                # 只有 opencode 的网关认这个头；校内/其它 OpenAI 兼容服务不用带
+                "custom_headers": (
+                    {"x-opencode-session": "astrbot"}
+                    if "opencode.ai" in base
+                    else {}
+                ),
             },
         )
         data["provider_sources"] = sources

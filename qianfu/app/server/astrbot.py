@@ -55,11 +55,17 @@ def start() -> dict:
         except OSError:
             log_file = subprocess.DEVNULL
 
+        # AstrBot 默认每 10 分钟往 tickstats.soulter.top 上报一次指标（含机器名），
+        # 信鸽这边把它关掉：本地工具不需要任何遥测。
+        env = dict(os.environ)
+        env["ASTRBOT_DISABLE_METRICS"] = "1"
+
         _proc = subprocess.Popen(
             [str(py), "main.py"],
             cwd=astrbot_setup.ASTRBOT_DIR,
             stdout=log_file,
             stderr=log_file,
+            env=env,
         )
 
     for _ in range(90):

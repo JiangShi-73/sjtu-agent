@@ -16,6 +16,7 @@
 from __future__ import annotations
 
 import json
+import secrets
 import shutil
 import subprocess
 import sys
@@ -121,10 +122,18 @@ def sanitize_config(dest: Path) -> None:
     data["platform"] = []
     data["provider"] = []
     data["provider_sources"] = []
+
+    # 面板：只监听本机 + 首次登录强制改口令 + 随机 jwt_secret
+    # 不这么做的话，打包机会把固定的面板口令哈希和 jwt_secret 带给每一个拿到安装包的人
+    dash = data.setdefault("dashboard", {})
+    dash["host"] = "127.0.0.1"
+    dash["password_change_required"] = True
+    dash["jwt_secret"] = secrets.token_hex(32)
+
     cfg_path.write_text(
         json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8-sig"
     )
-    log("已清空打包内的 QQ 配置和模型 key")
+    log("已清空打包内的 QQ 配置和模型 key；面板改绑本机并要求首次改口令")
 
 
 def write_launcher(dest: Path) -> None:

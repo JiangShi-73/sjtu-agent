@@ -9,6 +9,7 @@
     "dist:linux": "cross-env XINGE_TARGET=linux electron-builder --linux AppImage deb --config electron-builder.config.js"
   },
   "devDependencies": {
+    "cross-env": "^7.0.3",
     "electron": "^33.0.0",
     "electron-builder": "^25.1.8"
   }
