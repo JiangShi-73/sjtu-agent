@@ -3,23 +3,37 @@ __pycache__/
 *.py[cod]
 .venv/
 
+# 依赖与构建产物（体积大，不进仓库）
+node_modules/
+qianfu/astrbot/
+qianfu/build/
+qianfu/packages/
+qianfu/python/
+dist/
+
 # 本地凭据与运行产物（永远不要提交）
-*.session.json
 session.json
+*.session.json
+.xinge/
+*.db
+*.db-journal
+*.db-wal
+*.log
+logs/
 qr-*.png
 qr-*.html
 xinge-*.png
 
-# AstrBot 检出目录（首次运行 main.py 自动 clone）
-qianfu/astrbot/
-
 # 打包产物
-qianfu/build/
+*.zip
+*.exe
 
-# Node
-node_modules/
+# 本地环境
+.env
+.env.*
 
-# 编辑器
+# 编辑器/系统
 .vscode/
 .idea/
 .DS_Store
+Thumbs.db

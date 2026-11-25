@@ -1,3 +1,9 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (C) 2026 信鸽 SJTU 团队（星鹭企）
+#
+# 本文件是信鸽 SJTU 的 AstrBot 插件，通过 astrbot.api 与 AstrBot（AGPL-3.0）链接，
+# 属于 AGPL-3.0 意义上的衍生作品，按 AGPL-3.0-or-later 发布。详见仓库根目录 LICENSE。
+
 """信鸽 SJTU —— AstrBot 插件。
 
 设计原则：**少记指令**。
