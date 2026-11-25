@@ -84,6 +84,11 @@ def collect(show: str = "all") -> dict[str, list[dict]]:
             deadline = str(row.get("deadline") or "")
             if not deadline:
                 continue
+            # 只铺和 App 日历同一份白名单（db.CALENDAR_RULES）。第二课堂活动的
+            # deadline 是「报名截止」而不是活动时间，铺上去会出现「活动挂在报名
+            # 截止那天」；活动只有用户点了「加入日程」才作为 events 进日历。
+            if (row.get("source"), row.get("category")) not in db.CALENDAR_RULES:
+                continue
             day = deadline[:10]
             days.setdefault(day, []).append(
                 {

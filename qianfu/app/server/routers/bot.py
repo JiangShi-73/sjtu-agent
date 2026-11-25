@@ -264,6 +264,67 @@ def _find_activity(item_id: int) -> dict:
     raise HTTPException(status_code=404, detail="活动不存在")
 
 
+def _item_when(row: dict) -> str:
+    """列表里该显示的时间。
+
+    第二课堂活动的 deadline 存的是「报名截止」，不是活动时间——活动的开始
+    时间在 extra.start（抓取时同时写进 published）。其它板块的 deadline 就是
+    真正的截止时间，照旧优先用它。
+    """
+    if row.get("source") == "second_classroom":
+        extra = row.get("extra") if isinstance(row.get("extra"), dict) else {}
+        raw = extra.get("start") or row.get("published") or ""
+    else:
+        raw = row.get("deadline") or row.get("published") or row.get("date") or ""
+    return str(raw).replace("T", " ")[:16]
+
+
+def _activity_row(row: dict) -> dict:
+    """一条第二课堂活动的机器人视图。
+
+    活动没有「截止」概念：把 deadline（=报名截止）清掉，报名截止单独放
+    signup_end，活动时间放 start / published。否则机器人列表会把报名截止
+    当成活动时间显示（/活动 里日期会整体提前一天）。
+    """
+    item = _plain(row)
+    extra = item.get("extra") or {}
+    start = _item_when(item)
+    end = str(extra.get("end") or "").replace("T", " ")[:16]
+    signup_end = str(extra.get("signup_end") or "").replace("T", " ")[:16]
+    item.update(
+        {
+            "start": start,
+            "end": end,
+            "place": str(extra.get("place") or ""),
+            "signup_end": signup_end,
+            "published": item.get("published") or start,
+            "deadline": None,          # 活动没有截止时间，别再拿报名截止冒充
+        }
+    )
+    return item
+
+
+def _activity_items(limit: int) -> list[dict]:
+    """第二课堂活动的机器人视图列表（按活动开始时间倒序，和活动板块一致）。"""
+    rows = db.list_items("event", False, max(1, min(limit, 50)))
+    return [_activity_row(r) for r in rows]
+
+
+def _activity_text(rows: list[dict]) -> str:
+    """第二课堂活动 → 一段能直接发 QQ 的话（时间用活动开始时间）。"""
+    if not rows:
+        return "第二课堂暂无内容"
+    lines = [f"第二课堂（{len(rows)} 条）"]
+    for i, it in enumerate(rows, 1):
+        lines.append(f"{i}. {it['title']}")
+        tail = [x for x in (it.get("start") or "", it.get("place") or "") if x]
+        if tail:
+            lines.append("   " + " · ".join(tail))
+        if it.get("signup_end"):
+            lines.append(f"   报名截止 {it['signup_end']}")
+    return "\n".join(lines)
+
+
 def _board_items(board: str, limit: int, format: str, title: str) -> dict:
     """按板块取条目，text 模式直接给机器人念。"""
     rows = [_plain(r) for r in db.list_items(board, False, max(1, min(limit, 50)))]
@@ -273,9 +334,9 @@ def _board_items(board: str, limit: int, format: str, title: str) -> dict:
         lines = [f"{title}（{len(rows)} 条）"]
         for i, r in enumerate(rows, 1):
             lines.append(f'{i}. {r["title"]}')
-            when = r["deadline"] or r["published"]
+            when = _item_when(r)
             if when:
-                lines.append(f"   {str(when)[:16]}")
+                lines.append(f"   {when}")
         return {"count": len(rows), "text": "\n".join(lines)}
     return {"count": len(rows), "items": rows}
 
@@ -306,8 +367,16 @@ def bot_pe(limit: int = 10, format: str = "json"):
 
 @router.get("/bot/second-classroom")
 def bot_second_classroom(limit: int = 10, format: str = "json"):
-    """第二课堂活动（列表，挑一个再用 /bot/activity/{id} 看详情）。"""
-    return _board_items("event", limit, format, "第二课堂")
+    """第二课堂活动（列表，挑一个再用 /bot/activity/{id} 看详情）。
+
+    时间一律是**活动开始时间**（start，等于 extra.start）；报名截止单独放在
+    signup_end。这里以前直接返回原始 items 行，deadline 字段是报名截止，
+    机器人列表（/活动）拿 deadline 当活动时间显示，日期就整体错了。
+    """
+    rows = _activity_items(limit)
+    if format == "text":
+        return {"count": len(rows), "text": _activity_text(rows)}
+    return {"count": len(rows), "items": rows}
 
 
 @router.get("/bot/zhitu")

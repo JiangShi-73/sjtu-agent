@@ -56,37 +56,6 @@ def auth_status():
     return qrlogin.status()
 
 
-def _scrub_astrbot_secrets() -> bool:
-    """把 AstrBot 配置里同步过去的模型 Key / QQ Secret 也清掉。
-
-    只清磁盘上的凭据，不动 AstrBot 进程；下次重启 AstrBot 就不会再带着
-    旧 Key / Secret 跑。失败不影响退出登录本身。
-    """
-    try:
-        from xinge import astrbot_setup
-
-        data = astrbot_setup.read_astrbot_config()
-        if not data:
-            return False
-        changed = False
-        for source in data.get("provider_sources") or []:
-            if source.get("key"):
-                source["key"] = []
-                changed = True
-        for platform in data.get("platform") or []:
-            if platform.get("type") == "qq_official" and (
-                platform.get("secret") or platform.get("enable")
-            ):
-                platform["secret"] = ""
-                platform["enable"] = False
-                changed = True
-        if changed:
-            astrbot_setup.write_astrbot_config(data)
-        return changed
-    except Exception:                              # noqa: BLE001
-        return False
-
-
 @router.post("/auth/logout")
 def auth_logout():
     """退出 jAccount：清掉本机保存的所有登录态和可用凭据。
@@ -126,12 +95,14 @@ def auth_logout():
     if cfg_path.exists():
         try:
             cfg = json.loads(cfg_path.read_text(encoding="utf-8"))
+            # 只清「本人身份」相关的凭据。
+            # qq_appid / qq_secret 是**机器人**的注册凭据，不是 jAccount 会话，
+            # 退出登录不该把它删掉——删了机器人就永久离线，用户还得重新填一遍。
             for key in (
                 "canvas_token",
                 "sjtu_api_key",
                 "aihaoke_token",
                 "mail_password",
-                "qq_secret",
                 "llm_key",
             ):
                 cfg.pop(key, None)
@@ -141,7 +112,17 @@ def auth_logout():
         except (OSError, json.JSONDecodeError):
             pass
 
-    return {"ok": True, "removed": removed, "astrbot_scrubbed": _scrub_astrbot_secrets()}
+    # 没人在线了，把机器人停掉（避免一条 QQ 长连接还在替空会话服务）。
+    # 下次启动 App 或重新登录时 bootstrap 会带着新配置把它拉起来。
+    bot_stopped = False
+    try:
+        from .. import astrbot as _astrbot
+
+        bot_stopped = bool(_astrbot.stop().get("ok"))
+    except Exception:                             # noqa: BLE001
+        pass
+
+    return {"ok": True, "removed": removed, "bot_stopped": bot_stopped}
 
 
 @router.post("/auth/qr/start")
@@ -347,5 +328,21 @@ def data_delete(body: dict | None = None):
                 else:
                     time.sleep(0.2)
 
-    return {"ok": not failed, "removed": removed, "failed": failed, "home": str(home)}
+    # 删完必须把"空壳"重新建起来，否则后端还活着但库里没有表，
+    # 之后每次请求都会 500（板块/信息流/订阅全挂）——相当于把自己弄坏了。
+    reset_error = ""
+    try:
+        db.init()                       # 重新建表
+        config.save({})                 # 重新写一份默认配置
+    except Exception as exc:            # noqa: BLE001
+        reset_error = f"重建基础数据失败：{exc}"
+
+    return {
+        "ok": not failed and not reset_error,
+        "removed": removed,
+        "failed": failed,
+        "home": str(home),
+        "reset": not reset_error,
+        "error": reset_error,
+    }
 

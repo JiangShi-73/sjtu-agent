@@ -22,6 +22,60 @@ _proc: subprocess.Popen | None = None
 _lock = threading.Lock()
 
 
+def _pids_on_port(port: int) -> list[int]:
+    """谁在监听这个端口（跨平台，只做尽力而为）。
+
+    为什么需要它：AstrBot 可能是**上一个后端进程**拉起来的，
+    现在这个进程的 _proc 是 None，光靠 terminate(_proc) 停不掉它。
+    """
+    pids: list[int] = []
+    try:
+        if sys.platform == "win32":
+            out = subprocess.run(
+                ["netstat", "-ano"], capture_output=True, text=True, timeout=15, errors="ignore"
+            ).stdout
+            for line in out.splitlines():
+                if f":{port} " not in line or "LISTENING" not in line.upper():
+                    continue
+                tail = line.split()
+                if tail and tail[-1].isdigit():
+                    pids.append(int(tail[-1]))
+        else:
+            out = subprocess.run(
+                ["ss", "-lptn", f"sport = :{port}"],
+                capture_output=True, text=True, timeout=15, errors="ignore",
+            ).stdout
+            for line in out.splitlines():
+                if "pid=" not in line:
+                    continue
+                for part in line.split("pid=")[1:]:
+                    digits = ""
+                    for ch in part:
+                        if ch.isdigit():
+                            digits += ch
+                        else:
+                            break
+                    if digits:
+                        pids.append(int(digits))
+    except (OSError, subprocess.SubprocessError):
+        pass
+    return sorted(set(pids))
+
+
+def _kill_pids(pids: list[int]) -> None:
+    for pid in pids:
+        try:
+            if sys.platform == "win32":
+                subprocess.run(
+                    ["taskkill", "/F", "/PID", str(pid)],
+                    capture_output=True, timeout=15,
+                )
+            else:
+                os.kill(pid, 9)
+        except (OSError, subprocess.SubprocessError):
+            pass
+
+
 def alive() -> bool:
     """AstrBot 面板有没有响应。"""
     try:
@@ -79,21 +133,46 @@ def start() -> dict:
 
 
 def stop() -> dict:
+    """停掉 AstrBot —— 自己拉起的那个，以及上一个后端进程留下的孤儿进程。"""
     global _proc
+    killed: list[int] = []
     with _lock:
         if _proc and _proc.poll() is None:
+            killed.append(_proc.pid)
             _proc.terminate()
             try:
                 _proc.wait(timeout=10)
             except subprocess.TimeoutExpired:
                 _proc.kill()
+                _proc.wait(timeout=5)
         _proc = None
-    return {"ok": True}
+
+    # 关键：_proc 为空但端口还在监听，说明是孤儿进程，必须按端口清掉
+    others = _pids_on_port(DASHBOARD_PORT)
+    if others:
+        killed += others
+        _kill_pids(others)
+
+    # 等端口真的释放（最多 15 秒）
+    for _ in range(30):
+        if not _pids_on_port(DASHBOARD_PORT):
+            break
+        time.sleep(0.5)
+
+    return {"ok": True, "killed": killed}
 
 
 def restart() -> dict:
+    """强制重启：先确保真的停掉，再起。
+
+    注意不能用「start() 发现已存活就直接返回 already-running」那套逻辑，
+    否则改了配置点「保存并重启」根本不会生效。
+    """
     stop()
-    time.sleep(2)
+    for _ in range(20):
+        if not _pids_on_port(DASHBOARD_PORT) and not alive():
+            break
+        time.sleep(0.5)
     return start()
 
 
@@ -107,11 +186,26 @@ def apply_config(cfg: dict) -> dict:
 
 
 def bootstrap() -> None:
-    """后端启动时自动把 AstrBot 拉起来（装了的话）。"""
+    """后端启动时自动把 AstrBot 拉起来（装了的话）。
+
+    注意：如果 AstrBot 是**上一个后端进程**留下的孤儿进程，它加载的是旧配置。
+    这里先 sync 新配置，再强制重启，保证启起来的是最新配置
+    （否则会出现「改了配置、重启了 App，QQ 机器人还是旧行为」甚至平台为空的坑）。
+    """
     if not astrbot_setup.installed():
         return
     from . import config
 
     astrbot_setup.sync(config.load())
     astrbot_setup.sync_plugin()
-    threading.Thread(target=start, daemon=True).start()
+
+    def _boot() -> None:
+        try:
+            if _pids_on_port(DASHBOARD_PORT) or _proc is not None:
+                restart()
+            else:
+                start()
+        except Exception:                         # noqa: BLE001
+            pass
+
+    threading.Thread(target=_boot, daemon=True).start()
