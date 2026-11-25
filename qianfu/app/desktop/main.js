@@ -88,6 +88,7 @@ async function createWindow() {
     minWidth: 900,
     minHeight: 600,
     title: "信鸽 SJTU",
+    icon: path.join(__dirname, "xinge.ico"),
     backgroundColor: "#eae5d9",
     // 自绘标题栏：标题栏和菜单栏都不要，顶栏直接贴着窗口边
     autoHideMenuBar: true,
@@ -112,6 +113,8 @@ async function createWindow() {
 app.whenReady().then(async () => {
   // 去掉 File/Edit/View/Window/Help 那一条
   Menu.setApplicationMenu(null);
+  // 让任务栏图标 / 通知归到信鸽自己的 AppUserModelID 下
+  app.setAppUserModelId("com.sjtu.xinge");
   startBackend();
 
   const healthy = await waitForHealth();

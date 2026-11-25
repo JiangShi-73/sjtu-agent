@@ -283,8 +283,13 @@ def _insert(
     target_type: str,
     target_id=None,
     settings: dict | None = None,
+    image_url: str = "",
 ) -> int:
-    """插一条 pending 提醒；过期太久 / 同一 target 同一 fire_at 已存在就跳过。"""
+    """插一条 pending 提醒；过期太久 / 同一 target 同一 fire_at 已存在就跳过。
+
+    Args:
+        image_url: 要跟着这条提醒一起发出去的图片地址（没有就空串）。
+    """
     if fire_at < _now() - timedelta(hours=STALE_HOURS):
         return 0                                  # 提醒点过期太久，不补
     stamp = _fmt(_quiet(fire_at, settings))
@@ -292,10 +297,10 @@ def _insert(
         return 0
     conn.execute(
         """INSERT INTO reminder
-           (title, body, fire_at, target_type, target_id, state, created_at)
-           VALUES (?,?,?,?,?,'pending',?)""",
+           (title, body, fire_at, target_type, target_id, image_url, state, created_at)
+           VALUES (?,?,?,?,?,?,'pending',?)""",
         (title.strip() or "提醒", (body or "").strip(), stamp,
-         target_type, target_id, _fmt(_now())),
+         target_type, target_id, image_url or "", _fmt(_now())),
     )
     return 1
 
@@ -534,6 +539,78 @@ def mail_tick(limit: int = 20, max_notify: int | None = None) -> dict:
         conn.close()
 
 
+# ---------------- 规则：新活动 ----------------
+
+# 有新活动时跟着推送的图片（相对地址，插件自己拼 base_url）
+NEW_ACTIVITY_IMAGE = "/api/v1/bot/activities/new.png?hours=24"
+
+
+def generate_new_activity_reminder(items: list[dict] | None = None) -> int:
+    """有新活动上线时生成一条带图的提醒（同一天只生成一条）。
+
+    新活动从哪来：
+      * 抓取刚入库的条目会由 db.upsert_items 传进来（最及时）；
+      * 不传就去库里找最近 24 小时入库、还没开始的活动（启动补推用）。
+
+    同一天只生成一次：一天里多轮抓取都发现新活动，也只提醒一次，
+    免得一直打扰。只提醒还没开始的活动，已经办完的不推。
+
+    Args:
+        items: 本轮新增的活动条目（items 行）；None = 自己去库里找。
+
+    Returns:
+        生成几条（0 或 1）。
+    """
+    from . import activity_meta
+
+    try:
+        rows = items if items is not None else activity_meta.new_activities()
+        fresh = activity_meta.upcoming(rows)
+    except Exception as exc:                      # noqa: BLE001
+        log.warning("新活动检测失败：%s", exc)
+        return 0
+
+    # 只推「上次提醒之后」才入库的：不然第二天早上补推时，会把昨天下午
+    # 那批还不到 24 小时的活动又当新活动推一遍。
+    seen = _parse(db.get_setting("new_activity_seen_at", ""))
+    if items is None and seen is not None:
+        fresh = [it for it in fresh if (_parse(it.get("created_at")) or seen) > seen]
+    if not fresh:
+        return 0
+
+    settings = get_settings()
+    now = _now()
+    today = now.strftime("%Y-%m-%d")
+    conn = db.connect()
+    try:
+        exists = conn.execute(
+            """SELECT 1 FROM reminder
+               WHERE target_type='new_activity' AND substr(created_at,1,10)=? LIMIT 1""",
+            (today,),
+        ).fetchone()
+        if exists:
+            return 0                              # 今天已经提醒过一次
+
+        names = [str(it.get("title") or "").strip() for it in fresh[:3]]
+        names = [name for name in names if name]
+        body = "\n".join(names)
+        rest = len(fresh) - len(names)
+        if rest > 0:
+            body = f"{body}\n…还有 {rest} 个" if body else f"还有 {rest} 个新活动"
+        title = f"发现 {len(fresh)} 个新活动"
+        created = _insert(
+            conn, title, body, now, "new_activity", None, settings,
+            image_url=NEW_ACTIVITY_IMAGE,
+        )
+        conn.commit()
+        if created:
+            db.set_setting("new_activity_seen_at", _fmt(now))
+            log.info("新活动提醒：%s（图片 %s）", title, NEW_ACTIVITY_IMAGE)
+        return created
+    finally:
+        conn.close()
+
+
 # ---------------- 队列操作 ----------------
 
 def due(limit: int = 10) -> list[dict]:
@@ -541,10 +618,19 @@ def due(limit: int = 10) -> list[dict]:
     settings = get_settings()
     if not settings["reminder_enabled"]:
         return []                                 # 总开关关掉：一条都不给
+    ensure_daily_digest_throttled()               # 顺带把早报/公告排上（内部节流，60 秒最多一次）
     limit = max(1, min(int(limit or 10), 200))
     cap = int(settings["reminder_hourly_cap"])
     conn = db.connect()
     try:
+        # 早报错过超过 2 小时就不补发：队列里残留的 pending 直接标 skipped，不推给用户
+        conn.execute(
+            """UPDATE reminder SET state='skipped', sent_at=?
+               WHERE state='pending' AND target_type=?
+                 AND datetime(fire_at) < datetime('now','localtime',?)""",
+            (_fmt(_now()), DIGEST_TARGET, f"-{DIGEST_STALE_HOURS} hours"),
+        )
+        conn.commit()
         if cap > 0:
             this_hour = _now().strftime("%Y-%m-%d %H:") + "%"
             sent = conn.execute(
@@ -556,7 +642,7 @@ def due(limit: int = 10) -> list[dict]:
                 return []                         # 这个小时推够了
             limit = min(limit, remaining)
         rows = conn.execute(
-            """SELECT id, title, body, fire_at FROM reminder
+            """SELECT id, title, body, fire_at, image_url FROM reminder
                WHERE state='pending'
                  AND datetime(fire_at) <= datetime('now','localtime')
                ORDER BY fire_at, id LIMIT ?""",
@@ -807,6 +893,12 @@ def mend(days: int = 7) -> dict:
     """
     _purge_stale_pending()
     stats = _generate_all(days, get_settings())
+    try:
+        digest = ensure_daily_digest()            # 每日早报 + 公告汇总（幂等）
+        stats["digest"] = digest
+        stats["created"] += digest["created"]
+    except Exception as exc:                      # noqa: BLE001
+        log.warning("早报补扫失败：%s", exc)
     if stats["created"]:
         log.info("提醒补扫：日程 %s 条、条目 %s 条，新增提醒 %s 条",
                  stats["events"], stats["items"], stats["created"])
@@ -832,3 +924,234 @@ def regenerate_all() -> dict:
     log.info("提醒参数变更重算：清掉 %s 条 pending，重新生成 %s 条",
              removed, stats["created"])
     return stats
+
+
+# ---------------- 每日早报 / 新公告汇总 ----------------
+#
+# 早报：每天 07:30 一条，汇总当天日程 + 当天截止的作业；
+#       错过超过 2 小时（DIGEST_STALE_HOURS）就不补发了，直接 skipped，免得推过时噪音。
+# 公告：每天 20:00 一条，汇总最近 24 小时新发布的学院公告；没有新的就不生成。
+#       「新」以 published 为准（首次全量同步的旧公告 published 是很久以前，不能算新增），
+#       published 为空才退回 created_at。
+#
+# 两者都按「天」幂等：target_id 用 YYYYMMDD 编码，同一天最多一条；
+# 重复调用只更新还没推出去的 pending 内容（新加/删掉事项能刷新早报），不会重复入队。
+# 07:30 正好是默认静默时段的结束点：静默判断是「[start, end)」，落在 end 上不会被顺延；
+# 如果用户把静默结束调到 07:30 之后，fire_at 会被顺延到静默结束（可接受）。
+
+DIGEST_AT = time(7, 30)          # 早报固定 07:30
+NOTICE_AT = time(20, 0)          # 公告汇总固定 20:00：白天抓的公告都齐了，晚饭后不打扰
+DIGEST_TARGET = "digest"
+NOTICE_TARGET = "notice"
+NOTICE_SOURCE = "college"
+NOTICE_WINDOW_HOURS = 24         # 「新公告」= 最近 24 小时入库
+DIGEST_LINE_MAX = 32             # 单条标题最多留几个字，免得一条早报太长
+DIGEST_STALE_HOURS = 2           # 早报 fire_at 比现在早超过这么久就不补发（标 skipped）
+WEEKDAY_CN = "一二三四五六日"
+ENSURE_INTERVAL = 60.0           # due 里顺带补早报的最小间隔（秒）
+
+
+def _day_key(day: date) -> int:
+    """把日期编码成 target_id（YYYYMMDD 整数），同一天共用一条提醒。"""
+    return int(day.strftime("%Y%m%d"))
+
+
+def _clip(text, limit: int = DIGEST_LINE_MAX) -> str:
+    """压掉换行、截断超长标题（Canvas 作业标题经常很长）。"""
+    text = " ".join(str(text or "").split())
+    return text if len(text) <= limit else text[:limit - 1] + "…"
+
+
+def _digest_entries(conn, day: date) -> list[tuple[str, str]]:
+    """当天要写进早报的条目：[(排序用的 "HH:MM", 一行文字)]，按时间排。"""
+    entries: list[tuple[str, str]] = []
+
+    rows = conn.execute(
+        """SELECT title, start_time, location FROM events
+           WHERE event_date = ?
+           ORDER BY COALESCE(start_time, ''), id""",
+        (day.isoformat(),),
+    ).fetchall()
+    for row in rows:
+        title = _clip(row["title"] or "日程")
+        location = (row["location"] or "").strip()
+        if location:
+            title += f"（{_clip(location, 16)}）"
+        start = (row["start_time"] or "").strip()[:5]
+        if start:
+            entries.append((start, f"{start} {title}"))
+        else:
+            entries.append(("00:00", f"全天 {title}"))
+
+    marks = ",".join("?" * len(ITEM_BOARDS))
+    rows = conn.execute(
+        f"""SELECT title, deadline FROM items
+            WHERE board IN ({marks})
+              AND deadline IS NOT NULL AND deadline <> ''
+              AND date(deadline) = ?
+              AND archived_at IS NULL
+            ORDER BY datetime(deadline), id""",
+        (*ITEM_BOARDS, day.isoformat()),
+    ).fetchall()
+    for row in rows:
+        moment = _parse(row["deadline"])
+        hhmm = f"{moment:%H:%M}" if moment else "23:59"
+        entries.append((hhmm, f"{hhmm} {_clip(row['title'] or '作业')}截止"))
+
+    entries.sort(key=lambda item: item[0])
+    return entries
+
+
+def _digest_payload(conn, day: date) -> tuple[str, str] | None:
+    """某天早报的 (title, body)；当天没有安排就返回 None（不生成）。"""
+    entries = _digest_entries(conn, day)
+    if not entries:
+        return None
+    title = f"☀️ 今天 {len(entries)} 件事 · {day.month}/{day.day} 周{WEEKDAY_CN[day.weekday()]}"
+    body = "\n".join(text for _key, text in entries)
+    return title, body
+
+
+def _notice_payload(conn, now: datetime) -> tuple[str, str] | None:
+    """最近 24 小时新发布的学院公告 (title, body)；没有新的返回 None（不推）。
+
+    「新」以 published（公告实际发布时间）为准，published 为空才退回 created_at：
+    首次全量同步会把很久以前的老公告一次性入库，created_at 全是当下，
+    只看 created_at 会把几百条旧公告误判成新增。
+    """
+    since = _fmt(now - timedelta(hours=NOTICE_WINDOW_HOURS))
+    stamp = _fmt(now)
+    when = "COALESCE(datetime(NULLIF(published,'')), datetime(created_at))"
+    rows = conn.execute(
+        f"""SELECT title, {when} AS moment FROM items
+            WHERE source = ?
+              AND {when} IS NOT NULL
+              AND {when} >= datetime(?)
+              AND {when} <= datetime(?)
+            ORDER BY {when} DESC, id DESC""",
+        (NOTICE_SOURCE, since, stamp),
+    ).fetchall()
+    if not rows:
+        return None
+    titles = [_clip(row["title"] or "学院公告") for row in rows]
+    body = "\n".join(f"{index}. {text}" for index, text in enumerate(titles[:3], 1))
+    if len(titles) > 3:
+        body += f"\n…另有 {len(titles) - 3} 条"
+    return f"学院公告 {len(rows)} 条", body
+
+
+def _upsert_reminder(
+    conn,
+    target_type: str,
+    target_id: int,
+    payload: tuple[str, str] | None,
+    fire_at: datetime,
+) -> tuple[int, int]:
+    """按「target_type + 某天」幂等写入：返回 (新增条数, 更新条数)。
+
+    * 没内容：还没推出去的 pending 删掉（免得推一条空提醒），已推过的保留；
+    * 没这行：插一条 pending；
+    * 有这行且还没推：内容/时间变了就地更新，条数不变；
+    * 已经推过（sent/skipped/failed）：不再改内容，尊重历史。
+    """
+    row = conn.execute(
+        """SELECT id, title, body, fire_at, state FROM reminder
+           WHERE target_type=? AND target_id=? LIMIT 1""",
+        (target_type, target_id),
+    ).fetchone()
+    if payload is None:
+        if row is not None and row["state"] == "pending":
+            conn.execute("DELETE FROM reminder WHERE id=?", (row["id"],))
+        return 0, 0
+    title, body = payload
+    stamp = _fmt(fire_at)
+    now = _now()
+    stale = (
+        target_type == DIGEST_TARGET
+        and fire_at < now - timedelta(hours=DIGEST_STALE_HOURS)
+    )
+    if row is None:
+        if fire_at < now - timedelta(hours=STALE_HOURS):
+            return 0, 0                       # 过期太久（例如关机好几天）就不补了
+        if stale:
+            return 0, 0                       # 早报错过 >2 小时：不补发，免得推过时内容
+        conn.execute(
+            """INSERT INTO reminder
+               (title, body, fire_at, target_type, target_id, state, created_at)
+               VALUES (?,?,?,?,?,'pending',?)""",
+            (title, body, stamp, target_type, target_id, _fmt(now)),
+        )
+        return 1, 0
+    if row["state"] != "pending":
+        return 0, 0
+    if stale:
+        # 已经排进队列但早报已经过时：标 skipped，别让 due 推出去
+        conn.execute(
+            "UPDATE reminder SET state='skipped', sent_at=? WHERE id=? AND state='pending'",
+            (_fmt(now), row["id"]),
+        )
+        return 0, 0
+    if row["title"] == title and row["body"] == body and row["fire_at"] == stamp:
+        return 0, 0
+    conn.execute(
+        "UPDATE reminder SET title=?, body=?, fire_at=? WHERE id=?",
+        (title, body, stamp, row["id"]),
+    )
+    return 0, 1
+
+
+def ensure_daily_digest(settings: dict | None = None) -> dict:
+    """确保「今天/明天早报 + 今天公告汇总」在队列里（幂等，随时可调）。
+
+    * 启动补扫 mend() 调；
+    * 每次日程/作业/公告变动后由 db 的回调调（这样当天的早报能补上）；
+    * due() 每 60 秒被插件拉一次，也顺带调一次（跨天后即使没人动数据，明天的早报也能排上）。
+
+    Returns:
+        {"created": 新增条数, "updated": 就地更新条数}
+    """
+    settings = settings or get_settings()
+    now = _now()
+    created = updated = 0
+    conn = db.connect()
+    try:
+        for day in (now.date(), now.date() + timedelta(days=1)):
+            new, changed = _upsert_reminder(
+                conn,
+                DIGEST_TARGET,
+                _day_key(day),
+                _digest_payload(conn, day),
+                _quiet(datetime.combine(day, DIGEST_AT), settings),
+            )
+            created += new
+            updated += changed
+        new, changed = _upsert_reminder(
+            conn,
+            NOTICE_TARGET,
+            _day_key(now.date()),
+            _notice_payload(conn, now),
+            _quiet(datetime.combine(now.date(), NOTICE_AT), settings),
+        )
+        created += new
+        updated += changed
+        conn.commit()
+    finally:
+        conn.close()
+    if created or updated:
+        log.info("早报/公告汇总：新增 %s 条，更新 %s 条", created, updated)
+    return {"created": created, "updated": updated}
+
+
+_digest_gate = {"at": 0.0}
+
+
+def ensure_daily_digest_throttled(interval: float = ENSURE_INTERVAL) -> None:
+    """高频入口（due）用的节流版：每个进程最多 interval 秒跑一次。"""
+    now = _time.time()
+    if now - _digest_gate["at"] < interval:
+        return
+    _digest_gate["at"] = now
+    try:
+        ensure_daily_digest()
+    except Exception as exc:                      # noqa: BLE001
+        log.warning("早报补充失败：%s", exc)

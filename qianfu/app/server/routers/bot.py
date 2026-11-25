@@ -9,10 +9,12 @@
     推送 QQ 消息
     POST /api/v1/bot/ack  {"ids": [...]}    # 标记已推送，下次不再给
 
-另外两个按需接口：
+另外几个按需接口：
 
     GET /api/v1/bot/deadlines?days=7        # 未来 N 天的截止事项（Canvas/实验/慕课）
     GET /api/v1/bot/activities?days=7       # 未来 N 天的第二课堂活动（含报名窗口、劳动学时）
+    GET  /api/v1/bot/activities?filter=labor # 按属性筛活动（labor / newera / all）
+    GET  /api/v1/bot/activities/new.png      # 最近 N 小时的新活动列表图（QQ 推送用）
 """
 
 from __future__ import annotations
@@ -159,42 +161,14 @@ def deadlines(days: int = 7):
     return {"days": days, "items": db.items_with_deadline(start, end)}
 
 
-def _activity_rows(days: int, with_labor: bool) -> list[dict]:
-    """未来 N 天的第二课堂活动。"""
-    today = date.today()
-    end = (today + timedelta(days=max(1, min(days, 90)))).isoformat()
-    out = []
+def _activity_rows(days: int, kind: str = "all", limit: int = 20) -> list[dict]:
+    """未来 N 天的第二课堂活动（带劳动学时 / 新时代讲座属性）。
 
-    for row in db.list_items("event", False, 300):
-        item = _plain(row)
-        start = (item["extra"].get("start") or item.get("published") or "")[:10]
-        if not start or start < today.isoformat() or start > end:
-            continue
-        if with_labor and not item["extra"].get("labor_counted"):
-            continue
-        out.append(
-            {
-                "id": item["id"],
-                "title": item["title"],
-                "url": item["url"],
-                "type": item["category"],
-                "start": item["extra"].get("start"),
-                "end": item["extra"].get("end"),
-                "signup_start": item["extra"].get("signup_start"),
-                "signup_end": item["extra"].get("signup_end"),
-                "place": item["extra"].get("place"),
-                "sponsor": item["extra"].get("sponsor"),
-                "signup_method": item["extra"].get("signup"),
-                "signed_up": item["extra"].get("signed_up"),
-                "capacity": item["extra"].get("capacity"),
-                "labor_counted": bool(item["extra"].get("labor_counted")),
-                "labor_hours": item["extra"].get("labor_hours"),
-                "new_era": bool(item["extra"].get("new_era")),
-            }
-        )
+    属性从 activity_meta 表读（列表接口拿不到，后台逐条补的）。
+    """
+    from .. import activity_meta
 
-    out.sort(key=lambda x: x["start"] or "")
-    return out
+    return activity_meta.future_activities(days=days, kind=kind, limit=limit)
 
 
 def _text_list(rows: list[dict]) -> str:
@@ -215,15 +189,49 @@ def _text_list(rows: list[dict]) -> str:
 
 
 @router.get("/bot/activities")
-def activities(days: int = 7, with_labor: bool = False, format: str = "json"):
-    """未来 N 天的第二课堂活动。
+def activities(
+    days: int = 14,
+    filter: str = "all",
+    limit: int = 20,
+    format: str = "json",
+    with_labor: bool = False,
+):
+    """未来 N 天的第二课堂活动，可以按属性筛。
 
-    format=text 直接给一段可以发到 QQ 的文本（带序号）。
+    Args:
+        days: 往后看几天（1-90）。
+        filter: labor 只看有劳动学时的 / newera 只看新时代讲座课 / all 全部。
+        limit: 最多返回几条。
+        format: text 直接给一段能发到 QQ 的文本（带序号）。
+        with_labor: 老参数，等价于 filter=labor。
     """
-    rows = _activity_rows(days, with_labor)
+    if filter in ("labor", "newera"):
+        kind = filter
+    else:
+        kind = "labor" if with_labor else "all"
+    rows = _activity_rows(days, kind, limit)
     if format == "text":
-        return {"days": days, "count": len(rows), "text": _text_list(rows)}
-    return {"days": days, "count": len(rows), "items": rows}
+        return {"days": days, "filter": kind, "count": len(rows),
+                "text": _text_list(rows)}
+    return {"days": days, "filter": kind, "count": len(rows),
+            "activities": rows, "items": rows}
+
+
+@router.get("/bot/activities/new.png")
+def activities_new_png(hours: int = 24):
+    """把最近 N 小时的新活动画成一张图（QQ 推送用，失败不抛业务异常）。"""
+    from .. import actrender
+
+    try:
+        data = actrender.render(hours)
+    except Exception as exc:                      # noqa: BLE001
+        raise HTTPException(status_code=500, detail=f"渲染失败：{exc}") from exc
+
+    return Response(
+        content=data,
+        media_type="image/png",
+        headers={"Cache-Control": f"max-age={actrender.TTL_SECONDS}"},
+    )
 
 
 def _find_activity(item_id: int) -> dict:
@@ -534,9 +542,15 @@ def aihaoke(days: int = 30, format: str = "json"):
 
 @router.get("/bot/activity/{item_id}")
 def activity_detail(item_id: int):
-    """单个活动的详情（机器人回文字用）。"""
+    """单个活动的详情（机器人回文字用）。属性优先读缓存表。"""
+    from .. import activity_meta
+
     item = _find_activity(item_id)
     x = item["extra"]
+    meta = activity_meta.meta_map([item_id]).get(item_id) or {}
+    labor_counted = bool(meta.get("labor_counted", False)) if meta else bool(x.get("labor_counted"))
+    labor_hours = meta.get("labor_hours") if meta else x.get("labor_hours")
+    new_era = bool(meta.get("new_era", False)) if meta else bool(x.get("new_era"))
     return {
         "id": item["id"],
         "title": item["title"],
@@ -551,9 +565,9 @@ def activity_detail(item_id: int):
         "signup_method": x.get("signup"),
         "signed_up": x.get("signed_up"),
         "capacity": x.get("capacity"),
-        "labor_counted": bool(x.get("labor_counted")),
-        "labor_hours": x.get("labor_hours"),
-        "new_era": bool(x.get("new_era")),
+        "labor_counted": labor_counted,
+        "labor_hours": labor_hours,
+        "new_era": new_era,
         "introduction": x.get("introduction"),
         "presenter": x.get("presenter"),
         "shot": f"/api/v1/bot/activity/{item_id}/shot.png",

@@ -157,6 +157,7 @@ def fetch_activities(session: SessionStore, max_pages: int = 6) -> list[dict]:
 
 
 def fetch_detail(client: httpx.Client, activity_id) -> dict:
+    """单条活动详情（带 custom_properties 的那部分）。"""
     try:
         resp = client.get(f"{API}/activity/{activity_id}", params={"detail": 1})
         if resp.status_code != 200:
@@ -164,6 +165,51 @@ def fetch_detail(client: httpx.Client, activity_id) -> dict:
         return (resp.json().get("data") or {}).get("base_info") or {}
     except (httpx.HTTPError, ValueError):
         return {}
+
+
+def fetch_properties(session: SessionStore, activity_ids) -> dict:
+    """批量拿活动属性：同一个 token + 一个连接，避免每条活动重新登录。
+
+    列表接口没有 custom_properties，只能逐条拉详情。token 过期（401）时
+    换一次再重试；单条拿不到（活动被删/下架）直接跳过，不抛异常。
+
+    Args:
+        session: 登录态存储（只有换 token 时才需要浏览器）。
+        activity_ids: 平台活动 id 列表。
+
+    Returns:
+        {activity_id: {"labor_counted", "labor_hours", "new_era", "duration"}}
+    """
+    ids: list[int] = []
+    for aid in activity_ids or []:
+        try:
+            ids.append(int(aid))
+        except (TypeError, ValueError):
+            continue
+    if not ids:
+        return {}
+
+    token = get_token(session)
+    if not token:
+        return {}
+
+    headers = {"Authorization": f"Bearer {token}"}
+    out: dict[int, dict] = {}
+    with httpx.Client(verify=False, timeout=20, headers=headers) as client:
+        refreshed = False
+        for aid in ids:
+            base = fetch_detail(client, aid)
+            if not base and not refreshed:
+                # 多半是 token 过期：整批只换一次，别每条都开浏览器
+                token = get_token(session, refresh=True)
+                if token:
+                    client.headers["Authorization"] = f"Bearer {token}"
+                    refreshed = True
+                    base = fetch_detail(client, aid)
+            if not base:
+                continue
+            out[aid] = parse_properties(base)
+    return out
 
 
 def parse_properties(base: dict) -> dict:

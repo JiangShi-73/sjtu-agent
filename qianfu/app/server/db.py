@@ -85,6 +85,7 @@ CREATE TABLE IF NOT EXISTS reminder (
     state       TEXT NOT NULL DEFAULT 'pending',
     sent_at     TEXT,
     retry       INTEGER NOT NULL DEFAULT 0,
+    image_url   TEXT DEFAULT '',
     created_at  TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_reminder_due ON reminder(state, fire_at);
@@ -98,6 +99,16 @@ CREATE TABLE IF NOT EXISTS bot_contacts (
     openid    TEXT PRIMARY KEY,
     nickname  TEXT DEFAULT '',
     last_seen TEXT
+);
+
+-- 第二课堂活动属性：列表接口不返回，只能逐条拉详情再摊平，所以单独缓存
+CREATE TABLE IF NOT EXISTS activity_meta (
+    item_id       INTEGER PRIMARY KEY,
+    activity_id   INTEGER,
+    labor_counted INTEGER NOT NULL DEFAULT 0,
+    labor_hours   REAL NOT NULL DEFAULT 0,
+    new_era       INTEGER NOT NULL DEFAULT 0,
+    fetched_at    TEXT
 );
 """
 
@@ -132,6 +143,16 @@ def _log() -> logging.Logger:
     return logging.getLogger("xinge.db")
 
 
+def _after_digest_changed() -> None:
+    """日程 / 作业 / 公告一有变动就补一下当天早报（幂等，排过就只更新 pending 内容）。"""
+    try:
+        from . import reminders
+
+        reminders.ensure_daily_digest()
+    except Exception as exc:                      # noqa: BLE001
+        _log().warning("早报生成失败：%s", exc)
+
+
 def _after_event_created(event: dict) -> None:
     """新建日程后按规则生成提醒（课表来源在 reminders 里跳过）。"""
     if not event:
@@ -142,6 +163,7 @@ def _after_event_created(event: dict) -> None:
         reminders.generate_for_event(event)
     except Exception as exc:                      # noqa: BLE001
         _log().warning("日程提醒生成失败：%s", exc)
+    _after_digest_changed()
 
 
 def _after_event_updated(event: dict, fields: dict) -> None:
@@ -155,6 +177,7 @@ def _after_event_updated(event: dict, fields: dict) -> None:
         reminders.generate_for_event(event)
     except Exception as exc:                      # noqa: BLE001
         _log().warning("日程提醒更新失败：%s", exc)
+    _after_digest_changed()
 
 
 def _after_event_deleted(event_id: int) -> None:
@@ -164,18 +187,31 @@ def _after_event_deleted(event_id: int) -> None:
         reminders.cancel_for("event", event_id)
     except Exception as exc:                      # noqa: BLE001
         _log().warning("日程提醒清理失败：%s", exc)
+    _after_digest_changed()
 
 
-def _after_items_upserted(rows: list) -> None:
-    """条目入库后给作业板块生成提醒（幂等：同一 fire_at 不重复插）。"""
-    if not rows:
-        return
-    try:
-        from . import reminders
+def _after_items_upserted(rows: list, new_activities: list | None = None) -> None:
+    """条目入库后生成提醒：作业按 deadline 排，新上线的活动合并成一条带图的。
 
-        reminders.generate_for_items(rows)
-    except Exception as exc:                      # noqa: BLE001
-        _log().warning("作业提醒生成失败：%s", exc)
+    Args:
+        rows: 需要按截止时间排提醒的作业条目。
+        new_activities: 本轮新增的第二课堂活动（items 行）。
+    """
+    if rows:
+        try:
+            from . import reminders
+
+            reminders.generate_for_items(rows)
+        except Exception as exc:                  # noqa: BLE001
+            _log().warning("作业提醒生成失败：%s", exc)
+    if new_activities:
+        try:
+            from . import reminders
+
+            reminders.generate_new_activity_reminder(new_activities)
+        except Exception as exc:                  # noqa: BLE001
+            _log().warning("新活动提醒生成失败：%s", exc)
+    _after_digest_changed()
 
 
 def connect() -> sqlite3.Connection:
@@ -197,6 +233,10 @@ def init() -> None:
         # 过期归档：到期的先移进存档区，放一周再删
         if "archived_at" not in cols:
             conn.execute("ALTER TABLE items ADD COLUMN archived_at TEXT")
+        # 新活动提醒要带图片：老库补一列图片地址
+        reminder_cols = {r["name"] for r in conn.execute("PRAGMA table_info(reminder)")}
+        if "image_url" not in reminder_cols:
+            conn.execute("ALTER TABLE reminder ADD COLUMN image_url TEXT DEFAULT ''")
 
         for key, name, sort in DEFAULT_BOARDS:
             # 名称跟着代码走：改了 DEFAULT_BOARDS 下次启动就生效
@@ -221,11 +261,13 @@ def init() -> None:
 def upsert_items(items: list) -> int:
     """写入条目，返回真正新增的条数。"""
     if not items:
+        _after_digest_changed()                   # 抓取为空也算一次心跳：跨天后把早报排上
         return 0
     conn = connect()
     now = datetime.now().isoformat(timespec="seconds")
     added = 0
     remind_rows: list[dict] = []
+    new_activities: list[dict] = []
     try:
         for it in items:
             board = (it.extra or {}).get("board") or SOURCE_BOARD.get(it.source, "custom")
@@ -244,6 +286,14 @@ def upsert_items(items: list) -> int:
 
             if cur.rowcount:
                 added += 1
+                if it.source == "second_classroom":
+                    fresh = conn.execute(
+                        """SELECT id, title, url, published, extra
+                           FROM items WHERE source=? AND uid=?""",
+                        (it.source, it.uid),
+                    ).fetchone()
+                    if fresh:
+                        new_activities.append(dict(fresh))
             else:
                 # 已存在：更新可变字段，但保留 read_at / starred / board
                 conn.execute(
@@ -267,7 +317,7 @@ def upsert_items(items: list) -> int:
         conn.commit()
     finally:
         conn.close()
-    _after_items_upserted(remind_rows)
+    _after_items_upserted(remind_rows, new_activities)
     return added
 
 
@@ -886,5 +936,45 @@ def mark_expired_read(grace_days: int = 1) -> int:
         )
         conn.commit()
         return cur.rowcount
+    finally:
+        conn.close()
+
+
+# ---------------- 第二课堂活动属性 ----------------
+
+def upsert_activity_meta(rows: list[dict]) -> int:
+    """写入活动属性（同一 item 覆盖），返回写入条数。
+
+    属性只能逐条拉详情，所以存下来复用；后台补全和接口筛选都读这张表。
+    """
+    rows = [r for r in (rows or []) if r.get("item_id") is not None]
+    if not rows:
+        return 0
+
+    conn = connect()
+    now = datetime.now().isoformat(timespec="seconds")
+    try:
+        for row in rows:
+            conn.execute(
+                """INSERT INTO activity_meta
+                   (item_id, activity_id, labor_counted, labor_hours, new_era, fetched_at)
+                   VALUES (?,?,?,?,?,?)
+                   ON CONFLICT(item_id) DO UPDATE SET
+                     activity_id=excluded.activity_id,
+                     labor_counted=excluded.labor_counted,
+                     labor_hours=excluded.labor_hours,
+                     new_era=excluded.new_era,
+                     fetched_at=excluded.fetched_at""",
+                (
+                    int(row["item_id"]),
+                    row.get("activity_id"),
+                    1 if row.get("labor_counted") else 0,
+                    float(row.get("labor_hours") or 0),
+                    1 if row.get("new_era") else 0,
+                    row.get("fetched_at") or now,
+                ),
+            )
+        conn.commit()
+        return len(rows)
     finally:
         conn.close()
